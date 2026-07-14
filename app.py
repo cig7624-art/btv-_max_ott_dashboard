@@ -1118,3 +1118,4 @@ st.markdown(
     '<div class="footer-note">※ OTT 편성 현황은 키노라이츠 정액제·바로 보기 데이터를 기반으로 합니다. '
     '실제 서비스 편성 변경이나 동명 작품 매칭에 따라 차이가 있을 수 있습니다.</div>',
     unsafe_allow_html=True,
+)
