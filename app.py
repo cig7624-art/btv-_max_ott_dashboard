@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v8 · 관리 팝업·저장 기록형"
+BUILD_LABEL = "v9 · 관리 팝업 깜빡임 완화형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -1421,8 +1421,8 @@ def handle_query_actions(df: pd.DataFrame) -> None:
             "action": "delete",
             "row_id": delete_id,
         }
+    # 같은 실행 흐름에서 팝업을 열어 불필요한 전체 재실행을 줄인다.
     st.query_params.clear()
-    st.rerun()
 
 
 @st.dialog("OTT 정보 다시 확인")
@@ -1505,10 +1505,9 @@ def render_refresh_dialog(df: pd.DataFrame, row_id: str) -> None:
                     )
                     st.session_state.pop(preview_key, None)
                     if warning:
-                        st.warning(warning)
+                        st.session_state["_flash_warning"] = warning
                     else:
-                        st.success("새 조회 결과를 저장했습니다.")
-                    time.sleep(0.4)
+                        st.session_state["_flash_toast"] = "새 조회 결과를 저장했습니다."
                     st.rerun()
                 except Exception as exc:
                     st.error(f"저장하지 못했습니다: {exc}")
@@ -1547,10 +1546,9 @@ def render_delete_dialog(df: pd.DataFrame, row_id: str) -> None:
                     [history_event],
                 )
                 if warning:
-                    st.warning(warning)
+                    st.session_state["_flash_warning"] = warning
                 else:
-                    st.success("삭제했습니다. 삭제 직전 값은 저장 기록에 남았습니다.")
-                time.sleep(0.4)
+                    st.session_state["_flash_toast"] = "삭제했습니다. 삭제 직전 값은 저장 기록에 남았습니다."
                 st.rerun()
             except Exception as exc:
                 st.error(f"삭제하지 못했습니다: {exc}")
@@ -1773,6 +1771,17 @@ df = load_data()
 history_df = load_history()
 handle_query_actions(df)
 
+# 저장 완료 메시지는 화면을 잠시 멈추지 않고 다음 실행에서 가볍게 표시한다.
+flash_warning = st.session_state.pop("_flash_warning", "")
+flash_toast = st.session_state.pop("_flash_toast", "")
+if flash_warning:
+    st.warning(flash_warning)
+if flash_toast:
+    try:
+        st.toast(flash_toast, icon="✅")
+    except Exception:
+        st.success(flash_toast)
+
 last_update = "-"
 if not df.empty:
     checked = [clean_text(value) for value in df["last_checked"].tolist() if clean_text(value)]
@@ -1798,7 +1807,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v8 · 관리 팝업·저장 기록형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v9 · 관리 팝업 깜빡임 완화형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
