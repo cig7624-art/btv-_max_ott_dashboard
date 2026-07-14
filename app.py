@@ -344,11 +344,22 @@ def read_local_csv() -> pd.DataFrame:
 def write_local_csv(df: pd.DataFrame) -> None:
     export_df = normalize_dataframe(df)
     LOCAL_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Streamlit Cloud의 /tmp와 /mount/src는 서로 다른 파일시스템일 수 있어
+    # 임시 파일을 실제 CSV와 같은 폴더에 만든 뒤 원자적으로 교체한다.
     with tempfile.NamedTemporaryFile(
-        "w", suffix=".csv", delete=False, encoding="utf-8-sig", newline=""
+        mode="w",
+        suffix=".csv.tmp",
+        prefix="btv_max_",
+        dir=LOCAL_DATA_PATH.parent,
+        delete=False,
+        encoding="utf-8-sig",
+        newline="",
     ) as temp:
-        export_df.to_csv(temp.name, index=False)
+        export_df.to_csv(temp, index=False)
+        temp.flush()
         temp_path = Path(temp.name)
+
     temp_path.replace(LOCAL_DATA_PATH)
 
 
