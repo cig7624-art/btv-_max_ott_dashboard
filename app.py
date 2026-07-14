@@ -4,6 +4,7 @@ import base64
 import csv
 import html
 import io
+import json
 import os
 import re
 import tempfile
@@ -30,7 +31,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v6 · 정확한 작품 선택형"
+BUILD_LABEL = "v7 · OTT 제공처 DOM·링크 보강형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 
@@ -75,6 +76,20 @@ PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Apple TV": ("apple tv", "애플tv", "애플 tv"),
     "아마존 프라임 비디오": ("아마존 프라임 비디오", "prime video", "amazon prime"),
     "씨네폭스": ("씨네폭스", "cinefox"),
+}
+
+# 외부 재생 링크의 도메인은 화면 문구보다 안정적인 제공처 근거다.
+PROVIDER_DOMAINS: dict[str, tuple[str, ...]] = {
+    "넷플릭스": ("netflix.com",),
+    "쿠팡플레이": ("coupangplay.com", "coupang.com/play"),
+    "티빙": ("tving.com",),
+    "웨이브": ("wavve.com",),
+    "디즈니+": ("disneyplus.com",),
+    "왓챠": ("watcha.com", "watcha.co.kr"),
+    "라프텔": ("laftel.net",),
+    "Apple TV": ("tv.apple.com",),
+    "아마존 프라임 비디오": ("primevideo.com", "amazon.com/gp/video"),
+    "씨네폭스": ("cinefox.com",),
 }
 
 
@@ -423,8 +438,13 @@ def browser_launch_kwargs() -> dict[str, Any]:
 
 
 def extract_subscription_section(text: str) -> str:
+    """본문에서 정액제/바로 보기 영역을 넓게 잘라낸다.
+
+    키노라이츠는 작품마다 '정액제', '스트리밍', '바로 보기' 등 표기가
+    달라질 수 있어 한 가지 시작 문구에만 의존하지 않는다.
+    """
     decoded = html.unescape(clean_text(text))
-    start_markers = ["정액제", "구독", "스트리밍"]
+    start_markers = ["정액제", "바로 보기", "바로보기", "스트리밍", "구독"]
     end_markers = [
         "대여",
         "구매",
@@ -443,7 +463,7 @@ def extract_subscription_section(text: str) -> str:
     cuts = [section.find(marker) for marker in end_markers if section.find(marker) > 0]
     if cuts:
         section = section[: min(cuts)]
-    return section[:5000]
+    return section[:8000]
 
 
 def detect_providers(text: str) -> list[str]:
@@ -452,6 +472,143 @@ def detect_providers(text: str) -> list[str]:
     for canonical, aliases in PROVIDER_ALIASES.items():
         if any(alias.lower() in lowered for alias in aliases):
             found.append(canonical)
+    return found
+
+
+def detect_direct_view_providers(text: str) -> list[str]:
+    """전체 본문에서는 제공처 이름만 보지 않고 '바로 보기/시청' 근접 문구만 인정한다."""
+    normalized = re.sub(r"\s+", " ", html.unescape(clean_text(text))).lower()
+    action = r"(?:바로\s*보기|바로보기|시청하기|시청|정액제|스트리밍|구독)"
+    found: list[str] = []
+    for canonical, aliases in PROVIDER_ALIASES.items():
+        matched = False
+        for alias in aliases:
+            alias_pattern = re.escape(alias.lower()).replace(r"\ ", r"\s*")
+            if re.search(rf"{alias_pattern}.{{0,55}}{action}|{action}.{{0,55}}{alias_pattern}", normalized):
+                matched = True
+                break
+        if matched:
+            found.append(canonical)
+    return found
+
+
+def detect_provider_domains(text: str) -> list[str]:
+    lowered = html.unescape(clean_text(text)).lower()
+    return [
+        canonical
+        for canonical, domains in PROVIDER_DOMAINS.items()
+        if any(domain.lower() in lowered for domain in domains)
+    ]
+
+
+def collect_provider_dom_evidence(page: Any) -> str:
+    """재생 영역의 텍스트·로고 alt·외부 링크를 함께 수집한다.
+
+    제공처가 화면 본문 텍스트가 아니라 이미지 alt, aria-label 또는 외부 링크
+    도메인으로만 표시되는 경우가 있어 DOM 근거를 별도로 읽는다.
+    """
+    try:
+        evidence = page.evaluate(
+            r"""
+            () => {
+              const clean = v => (v || '').replace(/\s+/g, ' ').trim();
+              const actionRe = /(정액제|바로\s*보기|바로보기|스트리밍|구독|시청)/i;
+              const rows = [];
+              const add = value => {
+                const text = clean(value);
+                if (text && !rows.includes(text)) rows.push(text);
+              };
+              const describe = el => {
+                const parts = [
+                  el.innerText,
+                  el.textContent,
+                  el.getAttribute?.('aria-label'),
+                  el.getAttribute?.('title'),
+                  el.getAttribute?.('alt'),
+                  el.getAttribute?.('href'),
+                  el.getAttribute?.('src'),
+                ];
+                for (const img of Array.from(el.querySelectorAll?.('img') || [])) {
+                  parts.push(img.getAttribute('alt'), img.getAttribute('title'), img.getAttribute('src'));
+                }
+                for (const a of Array.from(el.querySelectorAll?.('a[href]') || [])) {
+                  parts.push(a.href, a.innerText, a.getAttribute('aria-label'), a.getAttribute('title'));
+                }
+                return clean(parts.filter(Boolean).join(' | '));
+              };
+
+              // 외부 재생 링크는 자체가 가장 강한 근거다.
+              for (const a of Array.from(document.querySelectorAll('a[href]'))) {
+                const href = a.href || '';
+                if (/netflix\.com|tving\.com|coupangplay\.com|coupang\.com\/play|wavve\.com|disneyplus\.com|watcha\.(com|co\.kr)|laftel\.net|tv\.apple\.com|primevideo\.com|cinefox\.com/i.test(href)) {
+                  add(describe(a));
+                }
+              }
+
+              // '바로 보기/정액제' 문구가 있는 작은 컨테이너만 수집한다.
+              for (const el of Array.from(document.querySelectorAll('body *'))) {
+                const own = clean(el.innerText || el.textContent || '');
+                if (!own || !actionRe.test(own)) continue;
+                let current = el;
+                for (let depth = 0; current && depth < 5; depth += 1, current = current.parentElement) {
+                  const text = clean(current.innerText || current.textContent || '');
+                  if (text.length > 0 && text.length <= 2200) {
+                    add(describe(current));
+                    break;
+                  }
+                }
+              }
+
+              // 버튼/링크/이미지 자체에 제공처명이 붙은 경우.
+              for (const el of Array.from(document.querySelectorAll('a, button, [role="button"], img[alt], [aria-label], [title]'))) {
+                const desc = describe(el);
+                if (actionRe.test(desc)) add(desc);
+              }
+              return rows.slice(0, 120).join('\n');
+            }
+            """
+        )
+        return clean_text(evidence)
+    except Exception:
+        return ""
+
+
+def extract_detail_providers(page: Any, body_text: str) -> list[str]:
+    """정액제 제공처를 텍스트, DOM 속성, 외부 링크 도메인으로 교차 확인한다."""
+    # 지연 로딩되는 바로 보기 영역을 표시하기 위해 페이지를 단계적으로 내린다.
+    try:
+        for ratio in (0.35, 0.7, 1.0):
+            page.evaluate("ratio => window.scrollTo(0, Math.max(0, document.body.scrollHeight * ratio))", ratio)
+            page.wait_for_timeout(450)
+    except Exception:
+        pass
+
+    try:
+        body_text = clean_text(page.locator("body").inner_text(timeout=8000)) or body_text
+    except Exception:
+        body_text = clean_text(body_text)
+
+    section = extract_subscription_section(body_text)
+    dom_evidence = collect_provider_dom_evidence(page)
+    try:
+        raw_html = page.content()
+    except Exception:
+        raw_html = ""
+
+    found: list[str] = []
+    evidence_sets = [
+        detect_providers(section),
+        detect_direct_view_providers(body_text),
+        detect_providers(dom_evidence),
+        detect_provider_domains(dom_evidence),
+        # 원문 HTML에서는 제공처명 자체가 아니라 외부 링크 도메인만 사용해
+        # 번들 문자열 때문에 모든 OTT가 잡히는 오탐을 막는다.
+        detect_provider_domains(raw_html),
+    ]
+    for providers in evidence_sets:
+        for provider in providers:
+            if provider not in found:
+                found.append(provider)
     return found
 
 
@@ -872,8 +1029,7 @@ def inspect_selected_candidate(context: Any, candidate: dict[str, str]) -> dict[
                 }
 
         body_text = clean_text(detail.locator("body").inner_text(timeout=8000))
-        section = extract_subscription_section(body_text)
-        providers = detect_providers(section) if section else []
+        providers = extract_detail_providers(detail, body_text)
         return {
             **candidate,
             "providers": providers,
@@ -881,7 +1037,7 @@ def inspect_selected_candidate(context: Any, candidate: dict[str, str]) -> dict[
             # Keep the selected result image. Never replace it with a generic OG image.
             "poster_url": clean_text(candidate.get("poster_url", "")),
             "source_url": detail.url,
-            "status": "조회 완료" if providers else "주요 OTT 제공처 없음",
+            "status": ("조회 완료: " + ", ".join(providers)) if providers else "주요 OTT 제공처 없음",
         }
     finally:
         detail.close()
@@ -1024,11 +1180,22 @@ def refresh_row(df: pd.DataFrame, row_id: str) -> None:
     index = matches[0]
     target = df.loc[index]
     lookup_kinolights.clear()
-    with st.spinner(f"'{clean_text(target['title'])}'의 OTT와 포스터를 다시 확인하고 있습니다…"):
-        result = lookup_kinolights(
-            clean_text(target["title"]),
-            clean_text(target.get("open_year", "")),
-        )
+    lookup_selected_kinolights.clear()
+    saved_candidate = {
+        "title": clean_text(target.get("matched_title", "")) or clean_text(target["title"]),
+        "poster_url": clean_text(target.get("poster_url", "")),
+        "url": clean_text(target.get("source_url", "")),
+        "year": clean_text(target.get("matched_year", "")) or clean_text(target.get("open_year", "")),
+        "query": clean_text(target["title"]),
+    }
+    with st.spinner(f"'{clean_text(target['title'])}'의 OTT 제공처를 다시 확인하고 있습니다…"):
+        if saved_candidate["url"] and saved_candidate["poster_url"]:
+            result = lookup_selected_kinolights(json.dumps(saved_candidate, ensure_ascii=False))
+        else:
+            result = lookup_kinolights(
+                clean_text(target["title"]),
+                clean_text(target.get("open_year", "")),
+            )
     parsed_date = pd.to_datetime(target.get("btv_update_date"), errors="coerce")
     update_date = parsed_date.date() if pd.notna(parsed_date) else date.today()
     replacement = result_to_row(
@@ -1263,7 +1430,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v6 · 정확한 작품 선택형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v7 · OTT 제공처 DOM·링크 보강형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1436,7 +1603,7 @@ if not view.empty:
 
 render_table(view)
 st.markdown(
-    '<div class="footer-note">※ OTT 편성 현황은 키노라이츠 정액제·바로 보기 데이터를 기반으로 합니다. '
+    '<div class="footer-note">※ OTT 편성 현황은 키노라이츠 정액제·바로 보기 문구와 외부 재생 링크를 기반으로 합니다. '
     '실제 서비스 편성 변경이나 동명 작품 매칭에 따라 차이가 있을 수 있습니다.</div>',
     unsafe_allow_html=True,
 )
