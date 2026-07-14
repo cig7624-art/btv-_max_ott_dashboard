@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v9 · 관리 팝업 깜빡임 완화형"
+BUILD_LABEL = "v10 · 현재 화면 팝업형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -253,6 +253,15 @@ div[data-baseweb="select"] > div { min-height:46px; }
   display:inline-block; border-radius:999px; padding:4px 9px; font-size:11px; font-weight:900;
   background:#eef3ff; color:#24458f;
 }
+
+.native-head {
+  min-height:38px; display:flex; align-items:center; justify-content:center;
+  text-align:center; font-size:12px; font-weight:950; color:#171b34; line-height:1.25;
+}
+.native-head.left { justify-content:flex-start; text-align:left; }
+.native-cell { width:100%; text-align:center; font-size:13px; color:#25304d; }
+.native-ox { display:flex; align-items:center; justify-content:center; min-height:46px; }
+/* 관리 버튼은 링크가 아니라 Streamlit 기본 버튼이라 URL 이동이 발생하지 않는다. */
 
 @media (max-width:800px) {
   .block-container { padding-left:1rem; padding-right:1rem; }
@@ -1675,7 +1684,14 @@ def ox_badge(value: Any) -> str:
     return '<span class="ox-o">O</span>' if as_bool(value) else '<span class="ox-x">X</span>'
 
 
+@st.fragment
 def render_table(df: pd.DataFrame) -> None:
+    """Render the comparison table with native Streamlit buttons.
+
+    Management actions deliberately avoid query-string links. Clicking a native
+    button reruns only this fragment and opens the dialog in the same page, so
+    the browser does not navigate or appear to redirect.
+    """
     if df.empty:
         st.markdown(
             '<div class="empty-box"><b>등록된 콘텐츠가 없습니다.</b><br>'
@@ -1684,7 +1700,26 @@ def render_table(df: pd.DataFrame) -> None:
         )
         return
 
-    rows: list[str] = []
+    widths = [3.55, 1.28, 1.0, 0.9, 0.94, 0.78, 0.88, 1.08, 0.76, 0.98]
+
+    with st.container(border=True):
+        header = st.columns(widths, gap="small", vertical_alignment="center")
+        header_labels = [
+            '<div class="native-head left">포스터 · 타이틀명</div>',
+            '<div class="native-head">B tv+ 업데이트일</div>',
+            '<div class="native-head">콘텐츠 구분</div>',
+            '<div class="native-head"><span class="provider-n">N</span>넷플릭스</div>',
+            '<div class="native-head"><span class="provider-c">▶</span>쿠팡플레이</div>',
+            '<div class="native-head"><span class="provider-t">T</span>티빙</div>',
+            '<div class="native-head"><span class="provider-w">W</span>웨이브</div>',
+            '<div class="native-head"><span class="provider-d">Disney</span> 디즈니+</div>',
+            '<div class="native-head"><span class="provider-wa">W</span>왓챠</div>',
+            '<div class="native-head">관리</div>',
+        ]
+        for column, label in zip(header, header_labels):
+            with column:
+                st.markdown(label, unsafe_allow_html=True)
+
     for _, row in df.iterrows():
         title = clean_text(row.get("title", ""))
         matched_title = clean_text(row.get("matched_title", ""))
@@ -1692,7 +1727,7 @@ def render_table(df: pd.DataFrame) -> None:
         source_url = clean_text(row.get("source_url", ""))
         open_year = clean_text(row.get("open_year", ""))
         last_checked = clean_text(row.get("last_checked", ""))
-        row_id = quote(clean_text(row.get("id", "")))
+        row_id = clean_text(row.get("id", ""))
 
         details: list[str] = []
         if open_year:
@@ -1701,66 +1736,70 @@ def render_table(df: pd.DataFrame) -> None:
             details.append(f"매칭: {matched_title}")
         elif matched_year and matched_year not in details:
             details.append(matched_year)
-
-        source_link = ""
-        if source_url:
-            source_link = f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
         if last_checked:
             details.append(f"확인 {last_checked}")
+
         detail_text = " · ".join(html.escape(item) for item in details)
-        if source_link:
+        if source_url:
+            source_link = (
+                f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
+            )
             detail_text += (" · " if detail_text else "") + source_link
 
-        management = "-"
-        if is_admin():
-            management = (
-                '<div class="action-wrap">'
-                f'<a class="icon-button" href="?refresh={row_id}" target="_self" title="다시 확인">↻</a>'
-                f'<a class="icon-button" href="?delete={row_id}" target="_self" title="삭제">⌫</a>'
-                "</div>"
-            )
+        with st.container(border=True):
+            columns = st.columns(widths, gap="small", vertical_alignment="center")
 
-        rows.append(
-            "<tr>"
-            f'<td class="title-col"><div class="title-wrap">{poster_html(row)}<div class="title-copy">'
-            f'<div class="title-main">{html.escape(title)}</div>'
-            f'<div class="title-sub">{detail_text or "-"}</div></div></div></td>'
-            f'<td>{html.escape(clean_text(row.get("btv_update_date", "")))}</td>'
-            f'<td>{type_badge(clean_text(row.get("content_type", "")))}</td>'
-            f'<td class="ott-cell">{ox_badge(row.get("netflix"))}</td>'
-            f'<td class="ott-cell">{ox_badge(row.get("coupang"))}</td>'
-            f'<td class="ott-cell">{ox_badge(row.get("tving"))}</td>'
-            f'<td class="ott-cell">{ox_badge(row.get("wavve"))}</td>'
-            f'<td class="ott-cell">{ox_badge(row.get("disney"))}</td>'
-            f'<td class="ott-cell">{ox_badge(row.get("watcha"))}</td>'
-            f'<td>{management}</td>'
-            "</tr>"
-        )
+            with columns[0]:
+                poster_col, copy_col = st.columns([0.34, 1.0], gap="small", vertical_alignment="center")
+                with poster_col:
+                    st.markdown(poster_html(row), unsafe_allow_html=True)
+                with copy_col:
+                    st.markdown(
+                        f'<div class="title-main">{html.escape(title)}</div>'
+                        f'<div class="title-sub">{detail_text or "-"}</div>',
+                        unsafe_allow_html=True,
+                    )
 
-    table = (
-        '<div class="table-shell"><table class="comparison-table">'
-        '<colgroup>'
-        '<col style="width:390px"><col style="width:140px"><col style="width:110px">'
-        '<col style="width:112px"><col style="width:112px"><col style="width:112px">'
-        '<col style="width:112px"><col style="width:128px"><col style="width:112px">'
-        '<col style="width:90px">'
-        '</colgroup>'
-        '<thead><tr>'
-        '<th style="text-align:left">포스터 · 타이틀명</th>'
-        '<th>B tv+ 업데이트일</th>'
-        '<th>콘텐츠 구분</th>'
-        '<th><div class="provider-head"><span class="provider-n">N</span><span>넷플릭스</span></div></th>'
-        '<th><div class="provider-head"><span class="provider-c">▶</span><span>쿠팡플레이</span></div></th>'
-        '<th><div class="provider-head"><span class="provider-t">T</span><span>티빙</span></div></th>'
-        '<th><div class="provider-head"><span class="provider-w">W</span><span>웨이브</span></div></th>'
-        '<th><div class="provider-head"><span class="provider-d">Disney</span><span>디즈니+</span></div></th>'
-        '<th><div class="provider-head"><span class="provider-wa">W</span><span>왓챠</span></div></th>'
-        '<th>관리</th>'
-        '</tr></thead><tbody>'
-        + "".join(rows)
-        + "</tbody></table></div>"
-    )
-    st.markdown(table, unsafe_allow_html=True)
+            with columns[1]:
+                st.markdown(
+                    f'<div class="native-cell">{html.escape(clean_text(row.get("btv_update_date", "")))}</div>',
+                    unsafe_allow_html=True,
+                )
+            with columns[2]:
+                st.markdown(
+                    f'<div class="native-cell">{type_badge(clean_text(row.get("content_type", "")))}</div>',
+                    unsafe_allow_html=True,
+                )
+
+            provider_columns = ["netflix", "coupang", "tving", "wavve", "disney", "watcha"]
+            for column, provider_column in zip(columns[3:9], provider_columns):
+                with column:
+                    st.markdown(
+                        f'<div class="native-cell native-ox">{ox_badge(row.get(provider_column))}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            with columns[9]:
+                if is_admin():
+                    refresh_col, delete_col = st.columns(2, gap="small")
+                    with refresh_col:
+                        if st.button(
+                            "↻",
+                            key=f"native_refresh_{row_id}",
+                            help=f"{title} 다시 확인",
+                            use_container_width=True,
+                        ):
+                            render_refresh_dialog(df, row_id)
+                    with delete_col:
+                        if st.button(
+                            "⌫",
+                            key=f"native_delete_{row_id}",
+                            help=f"{title} 삭제",
+                            use_container_width=True,
+                        ):
+                            render_delete_dialog(df, row_id)
+                else:
+                    st.markdown('<div class="native-cell">-</div>', unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
@@ -1769,7 +1808,6 @@ def render_table(df: pd.DataFrame) -> None:
 render_admin_login()
 df = load_data()
 history_df = load_history()
-handle_query_actions(df)
 
 # 저장 완료 메시지는 화면을 잠시 멈추지 않고 다음 실행에서 가볍게 표시한다.
 flash_warning = st.session_state.pop("_flash_warning", "")
@@ -1807,7 +1845,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v9 · 관리 팝업 깜빡임 완화형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v10 · 현재 화면 팝업형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1836,8 +1874,6 @@ if st.session_state.get("show_guide", False):
         '④ O는 해당 OTT 편성 확인, X는 편성 미확인입니다. ⑤ 행 우측의 ↻는 재조회, ⌫는 삭제입니다.</div>',
         unsafe_allow_html=True,
     )
-
-render_pending_management_dialog(df)
 
 if is_admin():
     with st.container(border=True):
