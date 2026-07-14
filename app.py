@@ -10,6 +10,7 @@ import re
 import tempfile
 import time
 import uuid
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -31,9 +32,10 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v7 · OTT 제공처 DOM·링크 보강형"
+BUILD_LABEL = "v8 · 관리 팝업·저장 기록형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
+LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
 
 OTT_COLUMNS = {
     "넷플릭스": "netflix",
@@ -63,6 +65,31 @@ DATA_COLUMNS = [
     "other_providers",
     "lookup_status",
     "last_checked",
+]
+
+HISTORY_COLUMNS = [
+    "history_id",
+    "timestamp",
+    "action",
+    "row_id",
+    "title",
+    "btv_update_date",
+    "content_type",
+    "open_year",
+    "poster_url",
+    "source_url",
+    "netflix",
+    "coupang",
+    "tving",
+    "wavve",
+    "disney",
+    "watcha",
+    "ott_summary",
+    "previous_ott_summary",
+    "lookup_status",
+    "note",
+    "snapshot_json",
+    "previous_snapshot_json",
 ]
 
 PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
@@ -214,6 +241,18 @@ div[data-baseweb="select"] > div { min-height:46px; }
   padding:13px 15px; color:#8c2735; font-weight:800;
 }
 .footer-note { color:#7c8498; font-size:11px; padding:14px 4px 0; }
+.dialog-summary {
+  background:#f6f8ff; border:1px solid #e0e6fb; border-radius:10px;
+  padding:12px 14px; margin:4px 0 12px; color:#293555; font-size:13px; line-height:1.7;
+}
+.dialog-warning {
+  background:#fff8e8; border:1px solid #f5dfa7; border-radius:10px;
+  padding:11px 13px; color:#73540d; font-size:12px; line-height:1.65; margin:8px 0;
+}
+.history-status {
+  display:inline-block; border-radius:999px; padding:4px 9px; font-size:11px; font-weight:900;
+  background:#eef3ff; color:#24458f;
+}
 
 @media (max-width:800px) {
   .block-container { padding-left:1rem; padding-right:1rem; }
@@ -274,6 +313,23 @@ def normalize_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
     return result[result["title"] != ""].copy()
 
 
+def empty_history_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(columns=HISTORY_COLUMNS)
+
+
+def normalize_history_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return empty_history_dataframe()
+    result = df.copy().fillna("")
+    for column in HISTORY_COLUMNS:
+        if column not in result.columns:
+            result[column] = ""
+    result = result[HISTORY_COLUMNS]
+    for column in OTT_COLUMNS.values():
+        result[column] = result[column].apply(as_bool)
+    return result.copy()
+
+
 def secret_value(name: str, default: str = "") -> str:
     try:
         if name in st.secrets:
@@ -298,6 +354,7 @@ def github_config() -> dict[str, str] | None:
         "repo": repo,
         "branch": secret_value("GITHUB_BRANCH", "main"),
         "path": secret_value("GITHUB_DATA_PATH", "btv_max_contents.csv"),
+        "history_path": secret_value("GITHUB_HISTORY_PATH", "btv_max_history.csv"),
     }
 
 
@@ -310,8 +367,13 @@ def github_headers(token: str) -> dict[str, str]:
     }
 
 
-def read_github_csv(cfg: dict[str, str]) -> pd.DataFrame:
-    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{cfg['path']}"
+def read_github_csv_path(
+    cfg: dict[str, str],
+    path: str,
+    normalizer: Any,
+    empty_factory: Any,
+) -> pd.DataFrame:
+    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{path}"
     response = requests.get(
         url,
         headers=github_headers(cfg["token"]),
@@ -319,17 +381,23 @@ def read_github_csv(cfg: dict[str, str]) -> pd.DataFrame:
         timeout=20,
     )
     if response.status_code == 404:
-        return empty_dataframe()
+        return empty_factory()
     response.raise_for_status()
     payload = response.json()
     raw = base64.b64decode(payload["content"]).decode("utf-8-sig")
     if not raw.strip():
-        return empty_dataframe()
-    return normalize_dataframe(pd.read_csv(io.StringIO(raw)))
+        return empty_factory()
+    return normalizer(pd.read_csv(io.StringIO(raw)))
 
 
-def write_github_csv(cfg: dict[str, str], df: pd.DataFrame, message: str) -> None:
-    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{cfg['path']}"
+def write_github_csv_path(
+    cfg: dict[str, str],
+    path: str,
+    df: pd.DataFrame,
+    message: str,
+    normalizer: Any,
+) -> None:
+    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{path}"
     headers = github_headers(cfg["token"])
     current = requests.get(
         url,
@@ -343,7 +411,7 @@ def write_github_csv(cfg: dict[str, str], df: pd.DataFrame, message: str) -> Non
     elif current.status_code != 404:
         current.raise_for_status()
 
-    export_df = normalize_dataframe(df)
+    export_df = normalizer(df)
     csv_text = export_df.to_csv(index=False, quoting=csv.QUOTE_MINIMAL)
     body: dict[str, Any] = {
         "message": message,
@@ -357,26 +425,14 @@ def write_github_csv(cfg: dict[str, str], df: pd.DataFrame, message: str) -> Non
     response.raise_for_status()
 
 
-def read_local_csv() -> pd.DataFrame:
-    if not LOCAL_DATA_PATH.exists():
-        return empty_dataframe()
-    try:
-        return normalize_dataframe(pd.read_csv(LOCAL_DATA_PATH))
-    except pd.errors.EmptyDataError:
-        return empty_dataframe()
-
-
-def write_local_csv(df: pd.DataFrame) -> None:
-    export_df = normalize_dataframe(df)
-    LOCAL_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    # Streamlit Cloud의 /tmp와 /mount/src는 서로 다른 파일시스템일 수 있어
-    # 임시 파일을 실제 CSV와 같은 폴더에 만든 뒤 원자적으로 교체한다.
+def atomic_write_csv(path: Path, df: pd.DataFrame, normalizer: Any, prefix: str) -> None:
+    export_df = normalizer(df)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".csv.tmp",
-        prefix="btv_max_",
-        dir=LOCAL_DATA_PATH.parent,
+        prefix=prefix,
+        dir=path.parent,
         delete=False,
         encoding="utf-8-sig",
         newline="",
@@ -384,8 +440,16 @@ def write_local_csv(df: pd.DataFrame) -> None:
         export_df.to_csv(temp, index=False)
         temp.flush()
         temp_path = Path(temp.name)
+    temp_path.replace(path)
 
-    temp_path.replace(LOCAL_DATA_PATH)
+
+def read_local_csv_path(path: Path, normalizer: Any, empty_factory: Any) -> pd.DataFrame:
+    if not path.exists():
+        return empty_factory()
+    try:
+        return normalizer(pd.read_csv(path))
+    except pd.errors.EmptyDataError:
+        return empty_factory()
 
 
 @st.cache_data(ttl=15, show_spinner=False)
@@ -393,19 +457,147 @@ def load_data() -> pd.DataFrame:
     cfg = github_config()
     if cfg:
         try:
-            return read_github_csv(cfg)
+            return read_github_csv_path(cfg, cfg["path"], normalize_dataframe, empty_dataframe)
         except Exception as exc:
             st.warning(f"GitHub 데이터를 불러오지 못해 앱 내 CSV를 표시합니다: {exc}")
-    return read_local_csv()
+    return read_local_csv_path(LOCAL_DATA_PATH, normalize_dataframe, empty_dataframe)
 
 
-def save_data(df: pd.DataFrame, message: str) -> None:
+@st.cache_data(ttl=15, show_spinner=False)
+def load_history() -> pd.DataFrame:
     cfg = github_config()
     if cfg:
-        write_github_csv(cfg, df, message)
+        try:
+            return read_github_csv_path(
+                cfg,
+                cfg["history_path"],
+                normalize_history_dataframe,
+                empty_history_dataframe,
+            )
+        except Exception as exc:
+            st.warning(f"GitHub 저장 기록을 불러오지 못해 앱 내 기록을 표시합니다: {exc}")
+    return read_local_csv_path(
+        LOCAL_HISTORY_PATH,
+        normalize_history_dataframe,
+        empty_history_dataframe,
+    )
+
+
+def write_current_data(df: pd.DataFrame, message: str) -> None:
+    cfg = github_config()
+    if cfg:
+        write_github_csv_path(cfg, cfg["path"], df, message, normalize_dataframe)
     else:
-        write_local_csv(df)
+        atomic_write_csv(LOCAL_DATA_PATH, df, normalize_dataframe, "btv_max_")
+
+
+def write_history_data(history_df: pd.DataFrame, message: str) -> None:
+    cfg = github_config()
+    if cfg:
+        write_github_csv_path(
+            cfg,
+            cfg["history_path"],
+            history_df,
+            message,
+            normalize_history_dataframe,
+        )
+    else:
+        atomic_write_csv(
+            LOCAL_HISTORY_PATH,
+            history_df,
+            normalize_history_dataframe,
+            "btv_history_",
+        )
+
+
+def row_snapshot(row: Any) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    for column in DATA_COLUMNS:
+        value = row.get(column, "") if hasattr(row, "get") else ""
+        if column in OTT_COLUMNS.values():
+            data[column] = as_bool(value)
+        else:
+            data[column] = clean_text(value)
+    return data
+
+
+def ott_summary(row: Any) -> str:
+    names = [name for name, column in OTT_COLUMNS.items() if as_bool(row.get(column, False))]
+    return ", ".join(names) if names else "없음"
+
+
+def make_history_event(
+    action: str,
+    row: Any,
+    previous_row: Any | None = None,
+    note: str = "",
+) -> dict[str, Any]:
+    current = row_snapshot(row)
+    previous = row_snapshot(previous_row) if previous_row is not None else {}
+    event: dict[str, Any] = {
+        "history_id": uuid.uuid4().hex[:16],
+        "timestamp": now_kst_text(),
+        "action": action,
+        "row_id": current.get("id", "") or previous.get("id", ""),
+        "title": current.get("title", "") or previous.get("title", ""),
+        "btv_update_date": current.get("btv_update_date", "") or previous.get("btv_update_date", ""),
+        "content_type": current.get("content_type", "") or previous.get("content_type", ""),
+        "open_year": current.get("open_year", "") or previous.get("open_year", ""),
+        "poster_url": current.get("poster_url", "") or previous.get("poster_url", ""),
+        "source_url": current.get("source_url", "") or previous.get("source_url", ""),
+        "ott_summary": ott_summary(current) if current else "없음",
+        "previous_ott_summary": ott_summary(previous) if previous else "",
+        "lookup_status": current.get("lookup_status", "") or previous.get("lookup_status", ""),
+        "note": clean_text(note),
+        "snapshot_json": json.dumps(current, ensure_ascii=False),
+        "previous_snapshot_json": json.dumps(previous, ensure_ascii=False) if previous else "",
+    }
+    for column in OTT_COLUMNS.values():
+        event[column] = as_bool(current.get(column, False)) if current else False
+    return event
+
+
+def append_history_events(events: list[dict[str, Any]], message: str) -> None:
+    if not events:
+        return
+    history_df = load_history()
+    updated_history = pd.concat([history_df, pd.DataFrame(events)], ignore_index=True)
+    write_history_data(updated_history, message)
+    load_history.clear()
+
+
+def save_data(
+    df: pd.DataFrame,
+    message: str,
+    history_events: list[dict[str, Any]] | None = None,
+) -> str:
+    """현재 목록을 먼저 저장하고, 변경 기록은 별도 누적 파일에 추가한다.
+
+    반환값이 있으면 목록 저장은 성공했지만 기록 저장만 실패한 것이다.
+    """
+    write_current_data(df, message)
+    history_warning = ""
+    if history_events:
+        try:
+            append_history_events(history_events, f"History: {message}")
+        except Exception as exc:
+            history_warning = f"목록은 저장됐지만 변경 기록 저장은 실패했습니다: {exc}"
     load_data.clear()
+    return history_warning
+
+
+def build_backup_zip(df: pd.DataFrame, history_df: pd.DataFrame) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "btv_max_contents.csv",
+            normalize_dataframe(df).to_csv(index=False).encode("utf-8-sig"),
+        )
+        archive.writestr(
+            "btv_max_history.csv",
+            normalize_history_dataframe(history_df).to_csv(index=False).encode("utf-8-sig"),
+        )
+    return buffer.getvalue()
 
 
 # -----------------------------------------------------------------------------
@@ -1072,9 +1264,11 @@ def lookup_selected_kinolights(candidate_json: str) -> dict[str, Any]:
             result = inspect_selected_candidate(context, candidate)
             context.close()
             browser.close()
+            status = clean_text(result.get("status", "조회 완료"))
+            hard_failure = status in {"상세 페이지 이동 실패", "상세 작품 검증 실패"}
             return {
-                "ok": True,
-                "status": clean_text(result.get("status", "조회 완료")),
+                "ok": not hard_failure,
+                "status": status,
                 "providers": result.get("providers", []) or [],
                 "matched_title": title,
                 "matched_year": clean_text(result.get("year", "")),
@@ -1083,7 +1277,7 @@ def lookup_selected_kinolights(candidate_json: str) -> dict[str, Any]:
             }
     except PlaywrightTimeoutError:
         return {
-            "ok": True,
+            "ok": False,
             "status": "OTT 조회 시간 초과",
             "providers": [],
             "matched_title": title,
@@ -1093,7 +1287,7 @@ def lookup_selected_kinolights(candidate_json: str) -> dict[str, Any]:
         }
     except Exception as exc:
         return {
-            "ok": True,
+            "ok": False,
             "status": f"OTT 조회 오류: {str(exc)[:80]}",
             "providers": [],
             "matched_title": title,
@@ -1172,45 +1366,41 @@ def render_admin_login() -> None:
                 st.error("비밀번호가 맞지 않습니다.")
 
 
-def refresh_row(df: pd.DataFrame, row_id: str) -> None:
-    matches = df.index[df["id"].astype(str) == row_id].tolist()
-    if not matches:
-        st.error("재조회할 콘텐츠를 찾지 못했습니다.")
-        return
-    index = matches[0]
-    target = df.loc[index]
+def fetch_refresh_result(target: Any) -> dict[str, Any]:
     lookup_kinolights.clear()
     lookup_selected_kinolights.clear()
     saved_candidate = {
-        "title": clean_text(target.get("matched_title", "")) or clean_text(target["title"]),
+        "title": clean_text(target.get("matched_title", "")) or clean_text(target.get("title", "")),
         "poster_url": clean_text(target.get("poster_url", "")),
         "url": clean_text(target.get("source_url", "")),
         "year": clean_text(target.get("matched_year", "")) or clean_text(target.get("open_year", "")),
-        "query": clean_text(target["title"]),
+        "query": clean_text(target.get("title", "")),
     }
-    with st.spinner(f"'{clean_text(target['title'])}'의 OTT 제공처를 다시 확인하고 있습니다…"):
-        if saved_candidate["url"] and saved_candidate["poster_url"]:
-            result = lookup_selected_kinolights(json.dumps(saved_candidate, ensure_ascii=False))
-        else:
-            result = lookup_kinolights(
-                clean_text(target["title"]),
-                clean_text(target.get("open_year", "")),
-            )
-    parsed_date = pd.to_datetime(target.get("btv_update_date"), errors="coerce")
-    update_date = parsed_date.date() if pd.notna(parsed_date) else date.today()
-    replacement = result_to_row(
-        title=clean_text(target["title"]),
-        update_date=update_date,
-        content_type=clean_text(target.get("content_type", "")),
-        open_year=clean_text(target.get("open_year", "")),
-        result=result,
-        row_id=row_id,
-        existing_poster_url="",
+    if saved_candidate["url"] and saved_candidate["poster_url"]:
+        return lookup_selected_kinolights(json.dumps(saved_candidate, ensure_ascii=False))
+    return lookup_kinolights(
+        clean_text(target.get("title", "")),
+        clean_text(target.get("open_year", "")),
     )
-    updated = df.copy()
-    for key, value in replacement.items():
-        updated.at[index, key] = value
-    save_data(updated, f"Refresh OTT providers: {clean_text(target['title'])}")
+
+
+def result_preview_html(label: str, providers: list[str]) -> str:
+    provider_set = set(providers)
+    badges = []
+    for provider in OTT_COLUMNS:
+        mark = "O" if provider in provider_set else "X"
+        color = "#159b2b" if mark == "O" else "#e52a3d"
+        badges.append(
+            f'<span style="display:inline-block;min-width:74px;margin:3px 4px 3px 0;'
+            f'padding:6px 8px;border:1px solid #e1e5ef;border-radius:8px;background:white;'
+            f'font-size:11px;font-weight:800">{html.escape(provider)} '
+            f'<b style="color:{color};font-size:15px">{mark}</b></span>'
+        )
+    return (
+        f'<div class="dialog-summary"><b>{html.escape(label)}</b><br>'
+        + "".join(badges)
+        + "</div>"
+    )
 
 
 def handle_query_actions(df: pd.DataFrame) -> None:
@@ -1218,53 +1408,230 @@ def handle_query_actions(df: pd.DataFrame) -> None:
         return
     refresh_id = clean_text(st.query_params.get("refresh", ""))
     delete_id = clean_text(st.query_params.get("delete", ""))
-
-    if delete_id:
-        st.session_state.pending_delete_id = delete_id
-        st.query_params.clear()
-        st.rerun()
+    if not refresh_id and not delete_id:
+        return
 
     if refresh_id:
-        try:
-            refresh_row(df, refresh_id)
-            st.query_params.clear()
-            st.success("OTT 편성 정보와 포스터를 다시 확인했습니다.")
-            time.sleep(0.4)
-            st.rerun()
-        except Exception as exc:
-            st.query_params.clear()
-            st.error(f"재조회하지 못했습니다: {exc}")
+        st.session_state["_pending_management_dialog"] = {
+            "action": "refresh",
+            "row_id": refresh_id,
+        }
+    elif delete_id:
+        st.session_state["_pending_management_dialog"] = {
+            "action": "delete",
+            "row_id": delete_id,
+        }
+    st.query_params.clear()
+    st.rerun()
 
 
-def render_delete_confirmation(df: pd.DataFrame) -> None:
-    pending_id = clean_text(st.session_state.get("pending_delete_id", ""))
-    if not pending_id or not is_admin():
+@st.dialog("OTT 정보 다시 확인")
+def render_refresh_dialog(df: pd.DataFrame, row_id: str) -> None:
+    matches = df.index[df["id"].astype(str) == row_id].tolist()
+    if not matches:
+        st.error("재확인할 콘텐츠를 찾지 못했습니다.")
         return
 
-    matches = df[df["id"].astype(str) == pending_id]
+    index = matches[0]
+    target = df.loc[index]
+    title = clean_text(target.get("title", ""))
+    current_providers = [
+        provider for provider, column in OTT_COLUMNS.items() if as_bool(target.get(column, False))
+    ]
+    st.markdown(f"**{html.escape(title)}**의 OTT 제공처를 다시 확인합니다.")
+    st.markdown(result_preview_html("현재 저장값", current_providers), unsafe_allow_html=True)
+    st.caption("새 조회에 실패하면 현재 저장값은 변경하지 않습니다.")
+
+    preview_key = f"_refresh_preview_{row_id}"
+    preview = st.session_state.get(preview_key)
+
+    if st.button("최신 정보 불러오기", type="primary", use_container_width=True):
+        with st.spinner(f"'{title}'의 최신 OTT 정보를 확인하고 있습니다…"):
+            preview = fetch_refresh_result(target)
+        st.session_state[preview_key] = preview
+
+    if preview:
+        if not preview.get("ok"):
+            st.error(
+                "최신 정보를 불러오지 못했습니다. 기존 저장값은 그대로 유지됩니다. "
+                + clean_text(preview.get("status", ""))
+            )
+        else:
+            new_providers = preview.get("providers", []) or []
+            st.markdown(result_preview_html("새 조회 결과", new_providers), unsafe_allow_html=True)
+            st.caption(clean_text(preview.get("status", "")))
+
+            suspicious_empty = bool(current_providers) and not new_providers
+            allow_empty = True
+            if suspicious_empty:
+                st.markdown(
+                    '<div class="dialog-warning">기존에는 O가 있었지만 새 결과가 모두 X입니다. '
+                    '키노라이츠 개편이나 일시적 조회 실패일 수 있어 기본적으로 저장을 막았습니다.</div>',
+                    unsafe_allow_html=True,
+                )
+                allow_empty = st.checkbox("모두 X인 결과로 덮어쓰겠습니다")
+
+            if st.button(
+                "이 결과로 저장",
+                type="primary",
+                use_container_width=True,
+                disabled=not allow_empty,
+            ):
+                parsed_date = pd.to_datetime(target.get("btv_update_date"), errors="coerce")
+                update_date = parsed_date.date() if pd.notna(parsed_date) else date.today()
+                replacement = result_to_row(
+                    title=title,
+                    update_date=update_date,
+                    content_type=clean_text(target.get("content_type", "")),
+                    open_year=clean_text(target.get("open_year", "")),
+                    result=preview,
+                    row_id=row_id,
+                    existing_poster_url=clean_text(target.get("poster_url", "")),
+                )
+                updated = df.copy()
+                for key, value in replacement.items():
+                    updated.at[index, key] = value
+                history_event = make_history_event(
+                    "재확인",
+                    replacement,
+                    previous_row=target,
+                    note="관리 팝업에서 새 조회 결과 저장",
+                )
+                try:
+                    warning = save_data(
+                        updated,
+                        f"Refresh OTT providers: {title}",
+                        [history_event],
+                    )
+                    st.session_state.pop(preview_key, None)
+                    if warning:
+                        st.warning(warning)
+                    else:
+                        st.success("새 조회 결과를 저장했습니다.")
+                    time.sleep(0.4)
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"저장하지 못했습니다: {exc}")
+
+    if st.button("닫기", use_container_width=True):
+        st.session_state.pop(preview_key, None)
+        st.rerun()
+
+
+@st.dialog("콘텐츠 삭제")
+def render_delete_dialog(df: pd.DataFrame, row_id: str) -> None:
+    matches = df[df["id"].astype(str) == row_id]
     if matches.empty:
-        st.session_state.pop("pending_delete_id", None)
+        st.error("삭제할 콘텐츠를 찾지 못했습니다.")
         return
-    title = clean_text(matches.iloc[0]["title"])
-
+    target = matches.iloc[0]
+    title = clean_text(target.get("title", ""))
+    st.markdown(f"**{html.escape(title)}**을(를) 목록에서 삭제할까요?")
     st.markdown(
-        f'<div class="delete-box">“{html.escape(title)}” 콘텐츠를 삭제할까요?</div>',
+        '<div class="dialog-warning">목록에서는 삭제되지만, 삭제 직전 데이터는 저장 기록에 남습니다.</div>',
         unsafe_allow_html=True,
     )
-    yes_col, no_col, _ = st.columns([1, 1, 6])
+    yes_col, no_col = st.columns(2)
     with yes_col:
         if st.button("삭제", type="primary", use_container_width=True):
-            updated = df[df["id"].astype(str) != pending_id].copy()
+            updated = df[df["id"].astype(str) != row_id].copy()
+            history_event = make_history_event(
+                "삭제",
+                target,
+                note="삭제 직전 데이터 보관",
+            )
             try:
-                save_data(updated, f"Delete B tv+ content: {title}")
-                st.session_state.pop("pending_delete_id", None)
+                warning = save_data(
+                    updated,
+                    f"Delete B tv+ content: {title}",
+                    [history_event],
+                )
+                if warning:
+                    st.warning(warning)
+                else:
+                    st.success("삭제했습니다. 삭제 직전 값은 저장 기록에 남았습니다.")
+                time.sleep(0.4)
                 st.rerun()
             except Exception as exc:
                 st.error(f"삭제하지 못했습니다: {exc}")
     with no_col:
         if st.button("취소", use_container_width=True):
-            st.session_state.pop("pending_delete_id", None)
             st.rerun()
+
+
+def render_pending_management_dialog(df: pd.DataFrame) -> None:
+    pending = st.session_state.pop("_pending_management_dialog", None)
+    if not pending or not is_admin():
+        return
+    action = clean_text(pending.get("action", ""))
+    row_id = clean_text(pending.get("row_id", ""))
+    if action == "refresh":
+        render_refresh_dialog(df, row_id)
+    elif action == "delete":
+        render_delete_dialog(df, row_id)
+
+
+@st.dialog("저장 기록")
+def render_history_dialog(df: pd.DataFrame, history_df: pd.DataFrame) -> None:
+    cfg = github_config()
+    storage_label = "GitHub 영구 저장" if cfg else "앱 서버 임시 저장"
+    st.markdown(
+        f'<div class="dialog-summary"><span class="history-status">{storage_label}</span><br>'
+        f'현재 콘텐츠 <b>{len(df):,}건</b> · 변경 기록 <b>{len(history_df):,}건</b></div>',
+        unsafe_allow_html=True,
+    )
+
+    if not cfg:
+        st.warning(
+            "현재는 앱 서버에만 저장됩니다. Streamlit 재배포·재시작 시 사라질 수 있으므로 "
+            "GitHub Secrets 연결 또는 아래 백업 ZIP 다운로드가 필요합니다."
+        )
+
+    if st.button("현재 목록을 기록으로 저장", use_container_width=True):
+        events = [
+            make_history_event("수동 백업", row, note="현재 목록 스냅샷")
+            for _, row in df.iterrows()
+        ]
+        if not events:
+            st.info("저장할 콘텐츠가 없습니다.")
+        else:
+            try:
+                append_history_events(events, "Manual snapshot of current B tv+ contents")
+                st.success(f"현재 콘텐츠 {len(events):,}건을 저장 기록에 추가했습니다.")
+                time.sleep(0.3)
+                st.rerun()
+            except Exception as exc:
+                st.error(f"저장 기록을 남기지 못했습니다: {exc}")
+
+    latest_history = load_history()
+    if latest_history.empty:
+        st.caption("아직 저장 기록이 없습니다.")
+    else:
+        display = latest_history.copy()
+        display = display.sort_values("timestamp", ascending=False).head(20)
+        display = display[["timestamp", "action", "title", "ott_summary", "note"]]
+        display.columns = ["일시", "구분", "타이틀", "OTT 저장값", "메모"]
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+    history_csv = normalize_history_dataframe(latest_history).to_csv(index=False).encode("utf-8-sig")
+    backup_zip = build_backup_zip(df, latest_history)
+    download_col, backup_col = st.columns(2)
+    with download_col:
+        st.download_button(
+            "변경 기록 CSV",
+            data=history_csv,
+            file_name=f"btv_max_history_{date.today()}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with backup_col:
+        st.download_button(
+            "전체 백업 ZIP",
+            data=backup_zip,
+            file_name=f"btv_max_backup_{date.today()}.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -1403,6 +1770,7 @@ def render_table(df: pd.DataFrame) -> None:
 # -----------------------------------------------------------------------------
 render_admin_login()
 df = load_data()
+history_df = load_history()
 handle_query_actions(df)
 
 last_update = "-"
@@ -1424,13 +1792,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-intro_col, guide_col, csv_col = st.columns([6, 1.1, 1.25], vertical_alignment="center")
+intro_col, guide_col, history_col, csv_col = st.columns([5.8, 1.05, 1.05, 1.2], vertical_alignment="center")
 with intro_col:
     st.markdown(
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v7 · OTT 제공처 DOM·링크 보강형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v8 · 관리 팝업·저장 기록형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1438,6 +1806,9 @@ with intro_col:
 with guide_col:
     if st.button("❔ 사용 가이드", use_container_width=True):
         st.session_state.show_guide = not st.session_state.get("show_guide", False)
+with history_col:
+    if st.button("🕘 저장 기록", use_container_width=True):
+        render_history_dialog(df, history_df)
 with csv_col:
     export_df = normalize_dataframe(df)
     st.download_button(
@@ -1457,7 +1828,7 @@ if st.session_state.get("show_guide", False):
         unsafe_allow_html=True,
     )
 
-render_delete_confirmation(df)
+render_pending_management_dialog(df)
 
 if is_admin():
     with st.container(border=True):
@@ -1556,11 +1927,23 @@ if is_admin():
                             )
                             updated = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                             try:
-                                save_data(updated, f"Add B tv+ content: {candidate_title}")
+                                history_event = make_history_event(
+                                    "추가",
+                                    new_row,
+                                    note="검색 결과에서 작품 선택 후 추가",
+                                )
+                                warning = save_data(
+                                    updated,
+                                    f"Add B tv+ content: {candidate_title}",
+                                    [history_event],
+                                )
                                 st.session_state.pop("content_search_candidates", None)
                                 st.session_state.pop("content_search_query", None)
                                 st.session_state.pop("content_search_meta", None)
-                                st.success(f"'{candidate_title}'을(를) 추가했습니다.")
+                                if warning:
+                                    st.warning(warning)
+                                else:
+                                    st.success(f"'{candidate_title}'을(를) 추가하고 저장 기록을 남겼습니다.")
                                 time.sleep(0.4)
                                 st.rerun()
                             except Exception as exc:
@@ -1588,7 +1971,7 @@ with st.container(border=True):
             label_visibility="collapsed",
         )
     with storage_col:
-        storage_text = "GitHub 자동 저장" if github_config() else "앱 내 CSV 저장"
+        storage_text = "GitHub 영구 저장 + 기록" if github_config() else "앱 내 임시 저장"
         st.caption(storage_text)
 
 view = df.copy()
@@ -1604,6 +1987,6 @@ if not view.empty:
 render_table(view)
 st.markdown(
     '<div class="footer-note">※ OTT 편성 현황은 키노라이츠 정액제·바로 보기 문구와 외부 재생 링크를 기반으로 합니다. '
-    '실제 서비스 편성 변경이나 동명 작품 매칭에 따라 차이가 있을 수 있습니다.</div>',
+    '실제 서비스 편성 변경이나 동명 작품 매칭에 따라 차이가 있을 수 있습니다. 저장된 값은 자동으로 바뀌지 않으며, 재확인 후 저장할 때만 갱신됩니다.</div>',
     unsafe_allow_html=True,
 )
