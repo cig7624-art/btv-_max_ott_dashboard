@@ -30,6 +30,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
+BUILD_LABEL = "v6 · 정확한 작품 선택형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 
@@ -132,21 +133,30 @@ div[data-baseweb="select"] > div { min-height:46px; }
   margin-top:18px; background:white; border:1px solid var(--line); border-radius:12px;
   overflow:auto; box-shadow:0 2px 9px rgba(17,26,59,.025);
 }
-.comparison-table { width:100%; border-collapse:collapse; min-width:1160px; }
+.comparison-table {
+  width:100%; border-collapse:collapse; min-width:1380px; table-layout:fixed;
+}
 .comparison-table th {
-  background:#fbfbfd; color:#171b34; padding:15px 10px; font-size:12px;
+  height:70px; background:#fbfbfd; color:#171b34; padding:12px 8px; font-size:12px;
   font-weight:950; border-right:1px solid var(--line); border-bottom:1px solid var(--line);
-  text-align:center; white-space:nowrap;
+  text-align:center; vertical-align:middle; white-space:nowrap;
 }
 .comparison-table td {
-  color:#25304d; padding:9px 10px; font-size:13px; border-right:1px solid var(--line);
-  border-bottom:1px solid var(--line); text-align:center; vertical-align:middle;
+  height:118px; color:#25304d; padding:9px 8px; font-size:13px;
+  border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+  text-align:center; vertical-align:middle;
 }
 .comparison-table tr:last-child td { border-bottom:0; }
 .comparison-table th:last-child, .comparison-table td:last-child { border-right:0; }
 .comparison-table tbody tr:hover { background:#fafcff; }
-.title-col { min-width:310px; text-align:left !important; }
-.title-wrap { display:flex; align-items:center; gap:14px; }
+.title-col { text-align:left !important; }
+.title-wrap { display:flex; align-items:center; gap:14px; min-width:0; }
+.title-copy { min-width:0; }
+.provider-head {
+  display:flex; align-items:center; justify-content:center; gap:4px;
+  width:100%; min-height:30px; line-height:1.2;
+}
+.ott-cell { padding-left:4px !important; padding-right:4px !important; }
 .poster {
   width:66px; height:94px; object-fit:cover; border-radius:7px; flex:0 0 auto;
   background:#e9ecf4; box-shadow:0 2px 6px rgba(20,28,60,.14);
@@ -445,15 +455,57 @@ def detect_providers(text: str) -> list[str]:
     return found
 
 
-def clean_candidate_title(raw_text: str, fallback: str) -> str:
+def clean_candidate_title(raw_text: str, fallback: str = "") -> str:
     lines = [line.strip() for line in clean_text(raw_text).splitlines() if line.strip()]
     excluded = {"찜하기", "급상승", "신작", "공개예정작", "종료예정작"}
     for line in lines:
         if line in excluded or line.endswith("%") or re.fullmatch(r"\d{4}·.*", line):
             continue
+        if re.fullmatch(r"\d+(?:\.\d+)?", line):
+            continue
         return line
-    return fallback
+    return clean_text(fallback)
 
+
+def candidate_title_from_link(link: Any, query: str) -> str:
+    """Read the title attached to a result card without guessing from the query."""
+    try:
+        raw_text = clean_text(link.inner_text(timeout=1800))
+        title = clean_candidate_title(raw_text)
+        if title:
+            return title
+    except Exception:
+        pass
+
+    try:
+        images = link.locator("img")
+        for index in range(min(images.count(), 3)):
+            image = images.nth(index)
+            for attribute in ("alt", "title", "aria-label"):
+                value = clean_candidate_title(clean_text(image.get_attribute(attribute)))
+                if value:
+                    return value
+    except Exception:
+        pass
+
+    for attribute in ("aria-label", "title"):
+        try:
+            value = clean_candidate_title(clean_text(link.get_attribute(attribute)))
+            if value:
+                return value
+        except Exception:
+            pass
+
+    # Some cards put the title on the immediate wrapper rather than the anchor.
+    try:
+        wrapper_text = clean_text(link.locator("xpath=..").inner_text(timeout=1800))
+        title = clean_candidate_title(wrapper_text)
+        if title and candidate_score(query, title, "") >= 45:
+            return title
+    except Exception:
+        pass
+
+    return ""
 
 def candidate_score(query: str, candidate: str, requested_year: str, body_year: str = "") -> float:
     normalized_query = normalize_title(query)
@@ -504,120 +556,192 @@ def image_from_locator(locator: Any, base_url: str) -> str:
     return ""
 
 
-def collect_candidates(page: Any, query: str) -> list[dict[str, str]]:
-    page.goto("https://m.kinolights.com/search", wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(1300)
-
-    try:
-        page.get_by_placeholder("작품명, 배우, 감독 검색").fill(query, timeout=5000)
-    except Exception:
-        page.locator("input").first.fill(query, timeout=5000)
-    page.wait_for_timeout(2400)
-
-    links = page.locator(
-        "a[href*='/season/'], a[href*='/title/'], a[href*='/movie/'], a[href*='/content/']"
-    )
-    count = min(links.count(), 24)
-    seen: set[str] = set()
-    candidates: list[dict[str, str]] = []
-
-    for index in range(count):
-        try:
-            link = links.nth(index)
-            href = clean_text(link.get_attribute("href"))
-            if not href:
-                continue
-            href = urljoin("https://m.kinolights.com", href)
-            if href in seen:
-                continue
-            seen.add(href)
-
-            raw_text = clean_text(link.inner_text(timeout=2200))
-            title = clean_candidate_title(raw_text, query)
-            poster_url = ""
-            try:
-                image = link.locator("img").first
-                if image.count():
-                    poster_url = image_from_locator(image, href)
-            except Exception:
-                pass
-
-            candidates.append({"title": title, "url": href, "poster_url": poster_url})
-        except Exception:
-            continue
-    return candidates
-
-
-def extract_detail_poster(detail: Any, detail_url: str, fallback: str = "") -> str:
+def visible_search_input(page: Any) -> Any | None:
     for selector in (
-        "meta[property='og:image']",
-        "meta[name='twitter:image']",
-        "meta[property='twitter:image']",
+        "input[type='search']",
+        "input[placeholder*='검색']",
+        "input[aria-label*='검색']",
+        "input",
     ):
         try:
-            content = detail.locator(selector).first.get_attribute("content")
-            image_url = normalize_image_url(content, detail_url)
-            if image_url:
-                return image_url
+            items = page.locator(selector)
+            for index in range(min(items.count(), 10)):
+                item = items.nth(index)
+                if item.is_visible() and item.is_enabled():
+                    return item
+        except Exception:
+            continue
+    return None
+
+
+def perform_kinolights_search(page: Any, query: str) -> None:
+    """Enter a query and fire the events used by the mobile search UI."""
+    page.goto("https://m.kinolights.com/search", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(1200)
+
+    search_input = visible_search_input(page)
+    if search_input is None:
+        raise RuntimeError("키노라이츠 검색창을 찾지 못했습니다.")
+
+    search_input.click(timeout=5000)
+    search_input.fill("")
+    # React/Vue controlled inputs sometimes ignore fill() alone. Set the value
+    # through the native setter and dispatch input/change/composition events.
+    search_input.evaluate(
+        r"""
+        (el, value) => {
+          const proto = Object.getPrototypeOf(el);
+          const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+          if (descriptor && descriptor.set) descriptor.set.call(el, value);
+          else el.value = value;
+          el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:value}));
+          el.dispatchEvent(new CompositionEvent('compositionend', {bubbles:true, data:value}));
+          el.dispatchEvent(new Event('change', {bubbles:true}));
+        }
+        """,
+        query,
+    )
+    search_input.press("Enter")
+    page.wait_for_timeout(1800)
+
+    # Wait until at least one image title is related to the entered query.
+    # If the search UI did not react, the page still shows today's popular works;
+    # those must never be mistaken for search results.
+    normalized_query = normalize_title(query)
+    for _ in range(12):
+        try:
+            alts = page.locator("img[alt]").evaluate_all(
+                "els => els.map(el => (el.getAttribute('alt') || '').trim()).filter(Boolean)"
+            )
+            if any(
+                normalized_query in normalize_title(alt)
+                or normalize_title(alt) in normalized_query
+                for alt in alts
+                if normalize_title(alt)
+            ):
+                break
         except Exception:
             pass
-
-    # Detail page fallback: poster images generally have portrait proportions.
-    try:
-        images = detail.locator("img")
-        for index in range(min(images.count(), 30)):
-            image_url = image_from_locator(images.nth(index), detail_url)
-            lowered = image_url.lower()
-            if image_url and any(keyword in lowered for keyword in ("poster", "content", "image", "kino")):
-                return image_url
-    except Exception:
-        pass
-    return fallback
+        page.wait_for_timeout(500)
 
 
-def inspect_detail(context: Any, candidate: dict[str, str]) -> dict[str, Any]:
-    detail = context.new_page()
-    try:
-        detail.goto(candidate["url"], wait_until="domcontentloaded", timeout=30000)
-        detail.wait_for_timeout(1700)
-        body_text = clean_text(detail.locator("body").inner_text(timeout=7000))
-        section = extract_subscription_section(body_text)
+def collect_candidates_from_current_page(page: Any, query: str) -> list[dict[str, str]]:
+    """Read each result from its own image node.
 
-        provider_texts: list[str] = []
-        if section:
-            provider_texts.append(section)
+    The old implementation mixed text from a broad anchor/container with the
+    first image in that container, which is why every title received the poster
+    for '결혼의 완성'. Here the title and poster are always taken from the same
+    img element. A detail URL is kept only when it is found in that image's own
+    clickable ancestors.
+    """
+    raw_candidates = page.evaluate(
+        r"""
+        () => {
+          const detailPattern = /\/(season|title|movie|content|contents)\//i;
+          const clean = value => (value || '').replace(/\s+/g, ' ').trim();
+          const absolute = value => {
+            try { return new URL(value, location.href).href; }
+            catch (_) { return value || ''; }
+          };
+          const imageSrc = img => {
+            const srcset = img.getAttribute('srcset') || '';
+            const srcsetFirst = srcset.split(',')[0]?.trim().split(/\s+/)[0] || '';
+            return absolute(
+              img.currentSrc || img.getAttribute('src') ||
+              img.getAttribute('data-src') || img.getAttribute('data-original') ||
+              srcsetFirst
+            );
+          };
+          const ownDetailHref = img => {
+            let current = img;
+            for (let depth = 0; current && depth < 7; depth += 1, current = current.parentElement) {
+              if (current.matches?.('a[href]') && detailPattern.test(current.href || '')) {
+                return current.href;
+              }
+              // Only inspect links inside a compact card whose text includes
+              // this image's alt title. Never scan a large shared container.
+              const text = clean(current.innerText || '');
+              const alt = clean(img.getAttribute('alt'));
+              if (text.length > 0 && text.length < 350 && (!alt || text.includes(alt))) {
+                const links = Array.from(current.querySelectorAll?.('a[href]') || [])
+                  .filter(a => detailPattern.test(a.href || ''));
+                if (links.length === 1) return links[0].href;
+              }
+            }
+            return '';
+          };
+          const cardText = img => {
+            let current = img;
+            let best = '';
+            for (let depth = 0; current && depth < 6; depth += 1, current = current.parentElement) {
+              const text = clean(current.innerText || '');
+              if (text && text.length < 350) best = text;
+              if (current.matches?.('li, article, [role="listitem"]')) break;
+            }
+            return best;
+          };
 
-        for selector in ("a:has-text('바로 보기')", "button:has-text('바로 보기')"):
-            try:
-                locations = detail.locator(selector)
-                for index in range(min(locations.count(), 20)):
-                    provider_texts.append(clean_text(locations.nth(index).inner_text(timeout=1300)))
-            except Exception:
-                pass
-
-        providers = detect_providers("\n".join(provider_texts))
-        poster_url = extract_detail_poster(
-            detail,
-            candidate["url"],
-            clean_text(candidate.get("poster_url", "")),
-        )
-        return {
-            **candidate,
-            "providers": providers,
-            "year": extract_year(body_text),
-            "poster_url": poster_url,
+          const rows = [];
+          const seen = new Set();
+          for (const img of Array.from(document.querySelectorAll('img[alt]'))) {
+            const title = clean(img.getAttribute('alt'));
+            const poster = imageSrc(img);
+            if (!title || !poster) continue;
+            const text = cardText(img);
+            const year = text.match(/(?:19|20)\d{2}/)?.[0] || '';
+            const url = ownDetailHref(img);
+            const key = `${title}|${poster}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            rows.push({title, poster_url:poster, url, year});
+          }
+          return rows;
         }
-    finally:
-        detail.close()
+        """
+    )
+
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw_candidates or []:
+        candidate_title = clean_text(item.get("title", ""))
+        normalized_query = normalize_title(query)
+        normalized_candidate = normalize_title(candidate_title)
+        is_related = (
+            normalized_query in normalized_candidate
+            or normalized_candidate in normalized_query
+            or SequenceMatcher(None, normalized_query, normalized_candidate).ratio() >= 0.72
+        )
+        if not is_related:
+            continue
+        poster_url = normalize_image_url(clean_text(item.get("poster_url", "")), "https://m.kinolights.com/search")
+        if not poster_url:
+            continue
+        key = f"{normalize_title(candidate_title)}|{poster_url}"
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            {
+                "title": candidate_title,
+                "poster_url": poster_url,
+                "url": clean_text(item.get("url", "")),
+                "year": clean_text(item.get("year", "")),
+                "query": query,
+            }
+        )
+
+    return sorted(
+        candidates,
+        key=lambda item: candidate_score(query, item["title"], "", item.get("year", "")),
+        reverse=True,
+    )[:8]
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def lookup_kinolights(title: str, open_year: str = "") -> dict[str, Any]:
-    title = clean_text(title)
-    open_year = clean_text(open_year)
-    if not title:
-        return {"ok": False, "status": "타이틀 없음", "providers": []}
-
+@st.cache_data(ttl=900, show_spinner=False)
+def search_kinolights_candidates(query: str) -> list[dict[str, str]]:
+    query = clean_text(query)
+    if not query:
+        return []
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(**browser_launch_kwargs())
@@ -633,55 +757,209 @@ def lookup_kinolights(title: str, open_year: str = "") -> dict[str, Any]:
             )
             page = context.new_page()
             page.set_default_timeout(12000)
-            candidates = collect_candidates(page, title)
-
-            if not candidates:
-                context.close()
-                browser.close()
-                return {"ok": False, "status": "검색 결과 없음", "providers": []}
-
-            preliminary = sorted(
-                candidates,
-                key=lambda item: candidate_score(title, item["title"], open_year),
-                reverse=True,
-            )[:4]
-
-            inspected: list[dict[str, Any]] = []
-            for candidate in preliminary:
-                try:
-                    item = inspect_detail(context, candidate)
-                    item["score"] = candidate_score(
-                        title,
-                        item["title"],
-                        open_year,
-                        item.get("year", ""),
-                    )
-                    inspected.append(item)
-                except Exception:
-                    continue
-
+            perform_kinolights_search(page, query)
+            candidates = collect_candidates_from_current_page(page, query)
             context.close()
             browser.close()
+            return candidates
+    except Exception:
+        return []
 
-            if not inspected:
-                return {"ok": False, "status": "상세 조회 실패", "providers": []}
 
-            best = sorted(inspected, key=lambda item: item["score"], reverse=True)[0]
-            providers = best.get("providers", [])
+def detail_title_matches(page: Any, expected_title: str) -> bool:
+    expected = normalize_title(expected_title)
+    if not expected:
+        return False
+    texts: list[str] = []
+    for selector, attribute in (
+        ("meta[property='og:title']", "content"),
+        ("meta[name='twitter:title']", "content"),
+        ("h1", None),
+        ("h2", None),
+    ):
+        try:
+            locator = page.locator(selector).first
+            value = locator.get_attribute(attribute) if attribute else locator.inner_text(timeout=1200)
+            if value:
+                texts.append(clean_text(value))
+        except Exception:
+            pass
+    try:
+        texts.append(clean_text(page.title()))
+    except Exception:
+        pass
+    normalized_text = normalize_title(" ".join(texts))
+    return expected in normalized_text or normalized_text in expected
+
+
+def click_exact_candidate(page: Any, candidate: dict[str, str]) -> bool:
+    expected_title = clean_text(candidate.get("title", ""))
+    expected_poster = clean_text(candidate.get("poster_url", ""))
+    images = page.locator("img[alt]")
+    chosen = None
+    for index in range(min(images.count(), 100)):
+        image = images.nth(index)
+        alt = clean_text(image.get_attribute("alt"))
+        if normalize_title(alt) != normalize_title(expected_title):
+            continue
+        image_url = image_from_locator(image, page.url)
+        if expected_poster and image_url and image_url != expected_poster:
+            continue
+        chosen = image
+        break
+    if chosen is None:
+        return False
+
+    before = page.url
+    try:
+        chosen.scroll_into_view_if_needed()
+        chosen.click(force=True, timeout=5000)
+        page.wait_for_timeout(1800)
+    except Exception:
+        pass
+    if page.url != before and "/search" not in page.url:
+        return True
+
+    # Click only the nearest actual clickable ancestor of the exact image.
+    try:
+        clicked = chosen.evaluate(
+            r"""
+            img => {
+              let current = img;
+              for (let depth = 0; current && depth < 7; depth += 1, current = current.parentElement) {
+                if (current.matches?.('a[href], button, [role="link"], [onclick]')) {
+                  current.click();
+                  return true;
+                }
+              }
+              return false;
+            }
+            """
+        )
+        if clicked:
+            page.wait_for_timeout(1800)
+    except Exception:
+        pass
+    return page.url != before and "/search" not in page.url
+
+
+def inspect_selected_candidate(context: Any, candidate: dict[str, str]) -> dict[str, Any]:
+    detail = context.new_page()
+    try:
+        source_url = clean_text(candidate.get("url", ""))
+        opened = False
+        if source_url and re.search(r"/(season|title|movie|content|contents)/", source_url, re.I):
+            detail.goto(source_url, wait_until="domcontentloaded", timeout=30000)
+            detail.wait_for_timeout(1600)
+            opened = detail_title_matches(detail, clean_text(candidate.get("title", "")))
+
+        if not opened:
+            perform_kinolights_search(detail, clean_text(candidate.get("query", candidate.get("title", ""))))
+            if not click_exact_candidate(detail, candidate):
+                return {
+                    **candidate,
+                    "providers": [],
+                    "status": "상세 페이지 이동 실패",
+                    "source_url": "",
+                }
+            detail.wait_for_timeout(1200)
+            if not detail_title_matches(detail, clean_text(candidate.get("title", ""))):
+                return {
+                    **candidate,
+                    "providers": [],
+                    "status": "상세 작품 검증 실패",
+                    "source_url": "",
+                }
+
+        body_text = clean_text(detail.locator("body").inner_text(timeout=8000))
+        section = extract_subscription_section(body_text)
+        providers = detect_providers(section) if section else []
+        return {
+            **candidate,
+            "providers": providers,
+            "year": extract_year(body_text) or clean_text(candidate.get("year", "")),
+            # Keep the selected result image. Never replace it with a generic OG image.
+            "poster_url": clean_text(candidate.get("poster_url", "")),
+            "source_url": detail.url,
+            "status": "조회 완료" if providers else "주요 OTT 제공처 없음",
+        }
+    finally:
+        detail.close()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def lookup_selected_kinolights(candidate_json: str) -> dict[str, Any]:
+    import json
+
+    try:
+        candidate = json.loads(candidate_json)
+    except Exception:
+        return {"ok": False, "status": "선택 정보 오류", "providers": []}
+
+    title = clean_text(candidate.get("title", ""))
+    if not title or not clean_text(candidate.get("poster_url", "")):
+        return {"ok": False, "status": "선택 콘텐츠 정보 부족", "providers": []}
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(**browser_launch_kwargs())
+            context = browser.new_context(
+                viewport={"width": 430, "height": 1600},
+                locale="ko-KR",
+                timezone_id="Asia/Seoul",
+                user_agent=(
+                    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+                    "Mobile/15E148 Safari/604.1"
+                ),
+            )
+            result = inspect_selected_candidate(context, candidate)
+            context.close()
+            browser.close()
             return {
                 "ok": True,
-                "status": "조회 완료" if providers else "주요 OTT 제공처 없음",
-                "providers": providers,
-                "matched_title": best.get("title", ""),
-                "matched_year": best.get("year", ""),
-                "source_url": best.get("url", ""),
-                "poster_url": best.get("poster_url", ""),
+                "status": clean_text(result.get("status", "조회 완료")),
+                "providers": result.get("providers", []) or [],
+                "matched_title": title,
+                "matched_year": clean_text(result.get("year", "")),
+                "source_url": clean_text(result.get("source_url", "")),
+                "poster_url": clean_text(candidate.get("poster_url", "")),
             }
-
     except PlaywrightTimeoutError:
-        return {"ok": False, "status": "조회 시간 초과", "providers": []}
+        return {
+            "ok": True,
+            "status": "OTT 조회 시간 초과",
+            "providers": [],
+            "matched_title": title,
+            "matched_year": clean_text(candidate.get("year", "")),
+            "source_url": clean_text(candidate.get("url", "")),
+            "poster_url": clean_text(candidate.get("poster_url", "")),
+        }
     except Exception as exc:
-        return {"ok": False, "status": f"조회 오류: {str(exc)[:100]}", "providers": []}
+        return {
+            "ok": True,
+            "status": f"OTT 조회 오류: {str(exc)[:80]}",
+            "providers": [],
+            "matched_title": title,
+            "matched_year": clean_text(candidate.get("year", "")),
+            "source_url": clean_text(candidate.get("url", "")),
+            "poster_url": clean_text(candidate.get("poster_url", "")),
+        }
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def lookup_kinolights(title: str, open_year: str = "") -> dict[str, Any]:
+    """Exact-title refresh only. Partial queries must be selected in the UI."""
+    candidates = search_kinolights_candidates(title)
+    exact = [item for item in candidates if normalize_title(item.get("title", "")) == normalize_title(title)]
+    if not exact:
+        return {"ok": False, "status": "정확히 일치하는 작품을 다시 선택해 주세요", "providers": []}
+    if open_year:
+        year_matches = [item for item in exact if clean_text(item.get("year", "")) == clean_text(open_year)]
+        if year_matches:
+            exact = year_matches
+    import json
+    return lookup_selected_kinolights(json.dumps(exact[0], ensure_ascii=False))
 
 
 def result_to_row(
@@ -760,7 +1038,7 @@ def refresh_row(df: pd.DataFrame, row_id: str) -> None:
         open_year=clean_text(target.get("open_year", "")),
         result=result,
         row_id=row_id,
-        existing_poster_url=clean_text(target.get("poster_url", "")),
+        existing_poster_url="",
     )
     updated = df.copy()
     for key, value in replacement.items():
@@ -905,40 +1183,46 @@ def render_table(df: pd.DataFrame) -> None:
         if is_admin():
             management = (
                 '<div class="action-wrap">'
-                f'<a class="icon-button" href="?refresh={row_id}" title="다시 확인">↻</a>'
-                f'<a class="icon-button" href="?delete={row_id}" title="삭제">⌫</a>'
+                f'<a class="icon-button" href="?refresh={row_id}" target="_self" title="다시 확인">↻</a>'
+                f'<a class="icon-button" href="?delete={row_id}" target="_self" title="삭제">⌫</a>'
                 "</div>"
             )
 
         rows.append(
             "<tr>"
-            f'<td class="title-col"><div class="title-wrap">{poster_html(row)}<div>'
+            f'<td class="title-col"><div class="title-wrap">{poster_html(row)}<div class="title-copy">'
             f'<div class="title-main">{html.escape(title)}</div>'
             f'<div class="title-sub">{detail_text or "-"}</div></div></div></td>'
             f'<td>{html.escape(clean_text(row.get("btv_update_date", "")))}</td>'
             f'<td>{type_badge(clean_text(row.get("content_type", "")))}</td>'
-            f'<td>{ox_badge(row.get("netflix"))}</td>'
-            f'<td>{ox_badge(row.get("coupang"))}</td>'
-            f'<td>{ox_badge(row.get("tving"))}</td>'
-            f'<td>{ox_badge(row.get("wavve"))}</td>'
-            f'<td>{ox_badge(row.get("disney"))}</td>'
-            f'<td>{ox_badge(row.get("watcha"))}</td>'
+            f'<td class="ott-cell">{ox_badge(row.get("netflix"))}</td>'
+            f'<td class="ott-cell">{ox_badge(row.get("coupang"))}</td>'
+            f'<td class="ott-cell">{ox_badge(row.get("tving"))}</td>'
+            f'<td class="ott-cell">{ox_badge(row.get("wavve"))}</td>'
+            f'<td class="ott-cell">{ox_badge(row.get("disney"))}</td>'
+            f'<td class="ott-cell">{ox_badge(row.get("watcha"))}</td>'
             f'<td>{management}</td>'
             "</tr>"
         )
 
     table = (
         '<div class="table-shell"><table class="comparison-table">'
+        '<colgroup>'
+        '<col style="width:390px"><col style="width:140px"><col style="width:110px">'
+        '<col style="width:112px"><col style="width:112px"><col style="width:112px">'
+        '<col style="width:112px"><col style="width:128px"><col style="width:112px">'
+        '<col style="width:90px">'
+        '</colgroup>'
         '<thead><tr>'
         '<th style="text-align:left">포스터 · 타이틀명</th>'
         '<th>B tv+ 업데이트일</th>'
         '<th>콘텐츠 구분</th>'
-        '<th><span class="provider-n">N</span>넷플릭스</th>'
-        '<th><span class="provider-c">▶</span>쿠팡플레이</th>'
-        '<th><span class="provider-t">T</span>티빙</th>'
-        '<th><span class="provider-w">W</span>웨이브</th>'
-        '<th><span class="provider-d">Disney</span>디즈니+</th>'
-        '<th><span class="provider-wa">W</span>왓챠</th>'
+        '<th><div class="provider-head"><span class="provider-n">N</span><span>넷플릭스</span></div></th>'
+        '<th><div class="provider-head"><span class="provider-c">▶</span><span>쿠팡플레이</span></div></th>'
+        '<th><div class="provider-head"><span class="provider-t">T</span><span>티빙</span></div></th>'
+        '<th><div class="provider-head"><span class="provider-w">W</span><span>웨이브</span></div></th>'
+        '<th><div class="provider-head"><span class="provider-d">Disney</span><span>디즈니+</span></div></th>'
+        '<th><div class="provider-head"><span class="provider-wa">W</span><span>왓챠</span></div></th>'
         '<th>관리</th>'
         '</tr></thead><tbody>'
         + "".join(rows)
@@ -979,7 +1263,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다.</div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v6 · 정확한 작품 선택형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -999,10 +1283,10 @@ with csv_col:
 
 if st.session_state.get("show_guide", False):
     st.markdown(
-        '<div class="guide-box">① 타이틀과 업데이트일을 입력해 추가합니다. '
-        '② 키노라이츠에서 포스터와 정액제 OTT 제공처를 자동 확인합니다. '
-        '③ O는 해당 OTT 편성 확인, X는 편성 미확인입니다. '
-        '④ 행 우측의 ↻는 재조회, ⌫는 삭제입니다.</div>',
+        '<div class="guide-box">① 타이틀을 검색합니다. '
+        '② 검색 결과에서 정확한 작품을 선택해 추가합니다. '
+        '③ 선택한 작품의 포스터와 OTT 제공처를 확인합니다. '
+        '④ O는 해당 OTT 편성 확인, X는 편성 미확인입니다. ⑤ 행 우측의 ↻는 재조회, ⌫는 삭제입니다.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1010,15 +1294,15 @@ render_delete_confirmation(df)
 
 if is_admin():
     with st.container(border=True):
-        st.markdown('<div class="control-title">새 타이틀 추가</div>', unsafe_allow_html=True)
-        with st.form("add_content_form", clear_on_submit=True):
-            title_col, date_col, type_col, year_col, add_col = st.columns(
+        st.markdown('<div class="control-title">새 타이틀 검색 및 추가 <span style="color:#173b9b">(작품 선택 필수)</span></div>', unsafe_allow_html=True)
+        with st.form("search_content_form", clear_on_submit=False):
+            title_col, date_col, type_col, year_col, search_col = st.columns(
                 [2.2, 1.15, 1.0, 0.8, 1.05], vertical_alignment="bottom"
             )
             with title_col:
                 title_input = st.text_input(
                     "타이틀명",
-                    placeholder="타이틀명을 입력하세요",
+                    placeholder="타이틀명을 검색하세요",
                     label_visibility="collapsed",
                 )
             with date_col:
@@ -1039,44 +1323,81 @@ if is_admin():
                     placeholder="연도",
                     label_visibility="collapsed",
                 )
-            with add_col:
-                submitted = st.form_submit_button(
-                    "＋ 추가",
+            with search_col:
+                search_submitted = st.form_submit_button(
+                    "🔍 검색",
                     type="primary",
                     use_container_width=True,
                 )
 
-        if submitted:
+        if search_submitted:
             title_input = clean_text(title_input)
             open_year_input = re.sub(r"\D", "", clean_text(open_year_input))[:4]
             if not title_input:
-                st.error("타이틀명을 입력하세요.")
-            elif not df.empty and normalize_title(title_input) in df["title"].apply(normalize_title).tolist():
-                st.warning("이미 등록된 타이틀입니다.")
+                st.error("검색할 타이틀명을 입력하세요.")
             else:
-                with st.spinner("포스터와 OTT 제공처를 자동 확인하고 있습니다…"):
-                    result = lookup_kinolights(title_input, open_year_input)
-                new_row = result_to_row(
-                    title=title_input,
-                    update_date=update_date_input,
-                    content_type=content_type_input,
-                    open_year=open_year_input,
-                    result=result,
-                )
-                updated = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                try:
-                    save_data(updated, f"Add B tv+ content: {title_input}")
-                    if result.get("ok"):
-                        st.success("타이틀·포스터·OTT 편성 정보를 추가했습니다.")
-                    else:
-                        st.warning(
-                            "타이틀은 추가했지만 자동 조회가 완료되지 않았습니다: "
-                            + clean_text(result.get("status", ""))
-                        )
-                    time.sleep(0.5)
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"저장하지 못했습니다: {exc}")
+                search_kinolights_candidates.clear()
+                with st.spinner(f"'{title_input}' 검색 결과를 확인하고 있습니다…"):
+                    candidates = search_kinolights_candidates(title_input)
+                st.session_state["content_search_query"] = title_input
+                st.session_state["content_search_candidates"] = candidates
+                st.session_state["content_search_meta"] = {
+                    "update_date": str(update_date_input),
+                    "content_type": content_type_input,
+                    "open_year": open_year_input,
+                }
+                if not candidates:
+                    st.warning("일치하는 검색 결과가 없습니다. 제목을 더 정확하게 입력해 주세요.")
+
+        candidates = st.session_state.get("content_search_candidates", [])
+        if candidates:
+            st.markdown(
+                '<div style="font-size:13px;font-weight:900;margin:10px 0 4px">검색 결과에서 정확한 작품을 선택하세요</div>',
+                unsafe_allow_html=True,
+            )
+            import json
+            meta = st.session_state.get("content_search_meta", {})
+            for index, candidate in enumerate(candidates):
+                candidate_title = clean_text(candidate.get("title", ""))
+                candidate_year = clean_text(candidate.get("year", ""))
+                candidate_poster = clean_text(candidate.get("poster_url", ""))
+                result_cols = st.columns([0.55, 3.2, 1.0], vertical_alignment="center")
+                with result_cols[0]:
+                    if candidate_poster:
+                        st.image(candidate_poster, width=66)
+                with result_cols[1]:
+                    st.markdown(f"**{html.escape(candidate_title)}**")
+                    st.caption(candidate_year or "연도 정보 없음")
+                with result_cols[2]:
+                    if st.button("이 콘텐츠 추가", key=f"add_candidate_{index}", use_container_width=True):
+                        existing_titles = df["title"].apply(normalize_title).tolist() if not df.empty else []
+                        if normalize_title(candidate_title) in existing_titles:
+                            st.warning("이미 등록된 타이틀입니다.")
+                        else:
+                            candidate["query"] = clean_text(st.session_state.get("content_search_query", candidate_title))
+                            with st.spinner(f"'{candidate_title}'의 OTT 제공처를 확인하고 있습니다…"):
+                                result = lookup_selected_kinolights(json.dumps(candidate, ensure_ascii=False))
+                            parsed_date = pd.to_datetime(meta.get("update_date"), errors="coerce")
+                            selected_date = parsed_date.date() if pd.notna(parsed_date) else date.today()
+                            selected_year = clean_text(meta.get("open_year", "")) or candidate_year
+                            new_row = result_to_row(
+                                title=candidate_title,
+                                update_date=selected_date,
+                                content_type=clean_text(meta.get("content_type", "드라마")),
+                                open_year=selected_year,
+                                result=result,
+                            )
+                            updated = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                            try:
+                                save_data(updated, f"Add B tv+ content: {candidate_title}")
+                                st.session_state.pop("content_search_candidates", None)
+                                st.session_state.pop("content_search_query", None)
+                                st.session_state.pop("content_search_meta", None)
+                                st.success(f"'{candidate_title}'을(를) 추가했습니다.")
+                                time.sleep(0.4)
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(f"저장하지 못했습니다: {exc}")
 else:
     st.caption("추가·재조회·삭제 기능은 관리자 로그인 후 사용할 수 있습니다.")
 
