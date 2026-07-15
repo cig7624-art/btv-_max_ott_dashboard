@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v11 · UI·기간필터·페이지형"
+BUILD_LABEL = "v12 · UI 정렬·검색결과·필터 개선형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -286,9 +286,83 @@ div[data-baseweb="select"] > div { min-height:46px; }
 [class*="st-key-native_delete_"] button:hover {
   border-color:#132b91 !important; color:#132b91 !important; background:#f4f7ff !important;
 }
-.search-result-title { font-size:13px; font-weight:950; color:#18213d; margin:2px 0 8px; }
-.search-result-note { color:#747d93; font-size:11px; }
+.search-result-title {
+  display:flex; align-items:center; gap:8px; font-size:13px; font-weight:950;
+  color:#18213d; margin:4px 2px 9px;
+}
+.search-result-count {
+  display:inline-flex; align-items:center; justify-content:center; min-width:26px; height:22px;
+  padding:0 8px; border-radius:999px; background:#edf2ff; color:#20409a; font-size:11px; font-weight:900;
+}
+.search-result-note { color:#747d93; font-size:11px; font-weight:500; }
 .pagination-info { text-align:center; color:#667087; font-size:12px; padding-top:12px; }
+
+/* 검색 결과: 포스터 5개가 보이는 고정 높이 + 내부 스크롤 */
+.st-key-candidate_results_shell {
+  padding:0 12px !important; background:#fbfcff !important;
+  border:1px solid #dfe4ef !important; border-radius:11px !important;
+}
+[class*="st-key-candidate_row_"] {
+  min-height:92px; padding:8px 2px !important; border-bottom:1px solid #e7eaf2;
+}
+[class*="st-key-candidate_row_"]:last-child { border-bottom:0; }
+[class*="st-key-candidate_row_"] [data-testid="stHorizontalBlock"] { align-items:center; }
+[class*="st-key-candidate_row_"] [data-testid="stImage"] { margin:0 !important; }
+[class*="st-key-candidate_row_"] [data-testid="stImage"] img {
+  width:58px !important; height:80px !important; object-fit:cover !important;
+  border-radius:7px !important; box-shadow:0 2px 7px rgba(16,29,74,.12);
+}
+.candidate-title { color:#111a3b; font-size:14px; font-weight:950; line-height:1.35; }
+.candidate-meta { color:#7a8295; font-size:11px; margin-top:5px; }
+[class*="st-key-add_candidate_"] button {
+  min-height:38px !important; height:38px !important; padding:0 13px !important;
+  border-radius:8px !important; font-size:12px !important; font-weight:850 !important;
+  border-color:#d7ddea !important; background:white !important; color:#263653 !important;
+}
+[class*="st-key-add_candidate_"] button:hover {
+  border-color:#173b9b !important; color:#173b9b !important; background:#f5f7ff !important;
+}
+.st-key-search_results_close button {
+  min-height:38px !important; height:38px !important; margin-top:9px;
+  border-radius:8px !important; color:#48526b !important;
+}
+
+/* 등록 콘텐츠 필터: 모든 입력·버튼·저장 상태의 높이와 기준선을 통일 */
+.st-key-content_filter_toolbar {
+  padding:11px 13px !important; background:white !important;
+  border:1px solid var(--line) !important; border-radius:12px !important;
+}
+.st-key-content_filter_toolbar [data-testid="stHorizontalBlock"] { align-items:center; }
+.st-key-content_filter_toolbar .stTextInput,
+.st-key-content_filter_toolbar .stSelectbox,
+.st-key-content_filter_toolbar .stButton { margin-bottom:0 !important; }
+.st-key-content_filter_toolbar input,
+.st-key-content_filter_toolbar div[data-baseweb="select"] > div,
+.st-key-content_filter_toolbar button { min-height:44px !important; height:44px !important; }
+.filter-tilde {
+  height:44px; display:flex; align-items:center; justify-content:center;
+  color:#6d7488; font-size:18px; font-weight:900;
+}
+.storage-pill {
+  min-height:44px; display:flex; align-items:center; justify-content:center; gap:7px;
+  border:1px solid #e1e5ef; border-radius:8px; background:#f8f9fc;
+  color:#677086; font-size:11px; font-weight:800; white-space:nowrap;
+}
+.storage-dot { width:7px; height:7px; border-radius:50%; display:inline-block; background:#1aa34a; }
+.storage-dot.temp { background:#e29b25; }
+.st-key-reset_content_filters button {
+  color:#3f4b67 !important; background:#f8f9fc !important; border-color:#dde2ed !important;
+  font-size:12px !important;
+}
+.st-key-reset_content_filters button:hover {
+  color:#173b9b !important; border-color:#aab9e2 !important; background:#f3f6ff !important;
+}
+
+/* 연결형 표의 여백과 세로 기준선 정돈 */
+.st-key-comparison_header { padding-left:14px !important; padding-right:14px !important; }
+[class*="st-key-content_row_"] { padding:7px 14px !important; }
+[class*="st-key-content_row_"] [data-testid="stHorizontalBlock"] { align-items:center; }
+
 /* 관리 버튼은 링크가 아니라 Streamlit 기본 버튼이라 URL 이동이 발생하지 않는다. */
 
 @media (max-width:800px) {
@@ -312,6 +386,43 @@ def clean_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def deduplicate_candidates_for_display(candidates: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Collapse duplicate search cards while preserving genuinely different years/types."""
+    unique: dict[tuple[str, str, str], dict[str, str]] = {}
+    order: list[tuple[str, str, str]] = []
+    for candidate in candidates:
+        title = clean_text(candidate.get("title", ""))
+        year = clean_text(candidate.get("year", ""))
+        content_type = clean_text(candidate.get("content_type", ""))
+        key = (normalize_title(title), year, content_type)
+        if not key[0]:
+            continue
+        if key not in unique:
+            unique[key] = candidate
+            order.append(key)
+            continue
+        # Prefer the duplicate carrying a concrete detail URL and poster.
+        current = unique[key]
+        current_score = int(bool(clean_text(current.get("url", "")))) + int(bool(clean_text(current.get("poster_url", ""))))
+        new_score = int(bool(clean_text(candidate.get("url", "")))) + int(bool(clean_text(candidate.get("poster_url", ""))))
+        if new_score > current_score:
+            unique[key] = candidate
+    return [unique[key] for key in order]
+
+
+def clear_content_search_results() -> None:
+    for key in ("content_search_candidates", "content_search_query", "content_search_meta"):
+        st.session_state.pop(key, None)
+
+
+def reset_content_filters() -> None:
+    st.session_state["content_title_filter"] = ""
+    st.session_state["content_type_filter"] = "전체"
+    st.session_state["start_month_filter"] = "전체"
+    st.session_state["end_month_filter"] = "전체"
+    st.session_state["content_page"] = 1
 
 
 def now_kst_text() -> str:
@@ -1635,6 +1746,19 @@ def render_pending_management_dialog(df: pd.DataFrame) -> None:
         render_delete_dialog(df, row_id)
 
 
+@st.dialog("이미 등록된 콘텐츠")
+def render_duplicate_content_dialog(title: str) -> None:
+    st.markdown(
+        f'<div class="dialog-summary"><b>{html.escape(title)}</b>은(는) 이미 등록되어 있습니다.<br>'
+        '목록에서 기존 콘텐츠를 재확인하거나 삭제한 뒤 다시 추가해 주세요.</div>',
+        unsafe_allow_html=True,
+    )
+    spacer, close_col = st.columns([4, 1])
+    with close_col:
+        if st.button("닫기", type="primary", use_container_width=True, key="close_duplicate_dialog"):
+            st.rerun()
+
+
 @st.dialog("저장 기록")
 def render_history_dialog(df: pd.DataFrame, history_df: pd.DataFrame) -> None:
     cfg = github_config()
@@ -1922,7 +2046,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v11 · UI·기간필터·페이지형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v12 · UI 정렬·검색결과·필터 개선형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1953,23 +2077,29 @@ if st.session_state.get("show_guide", False):
     )
 
 if is_admin():
-    with st.container(border=True):
-        st.markdown('<div class="control-title">새 타이틀 검색 및 추가 <span style="color:#173b9b">(작품 선택 필수)</span></div>', unsafe_allow_html=True)
+    with st.container(border=True, key="new_content_search_box"):
+        st.markdown(
+            '<div class="control-title">새 타이틀 검색 및 추가 '
+            '<span style="color:#173b9b">(작품 선택 필수)</span></div>',
+            unsafe_allow_html=True,
+        )
         with st.form("search_content_form", clear_on_submit=False):
             title_col, date_col, search_col = st.columns(
-                [3.5, 1.35, 1.25], vertical_alignment="bottom"
+                [3.8, 1.35, 1.25], vertical_alignment="bottom"
             )
             with title_col:
                 title_input = st.text_input(
                     "타이틀명",
                     placeholder="타이틀명을 검색하세요",
                     label_visibility="collapsed",
+                    key="new_title_search_input",
                 )
             with date_col:
                 update_date_input = st.date_input(
                     "B tv+ 업데이트일",
                     value=date.today(),
                     label_visibility="collapsed",
+                    key="new_title_update_date",
                 )
             with search_col:
                 search_submitted = st.form_submit_button(
@@ -1986,6 +2116,7 @@ if is_admin():
                 search_kinolights_candidates.clear()
                 with st.spinner(f"'{title_input}' 검색 결과를 확인하고 있습니다…"):
                     candidates = search_kinolights_candidates(title_input)
+                candidates = deduplicate_candidates_for_display(candidates)
                 st.session_state["content_search_query"] = title_input
                 st.session_state["content_search_candidates"] = candidates
                 st.session_state["content_search_meta"] = {
@@ -1994,72 +2125,113 @@ if is_admin():
                 if not candidates:
                     st.warning("일치하는 검색 결과가 없습니다. 제목을 더 정확하게 입력해 주세요.")
 
-        candidates = st.session_state.get("content_search_candidates", [])
+        candidates = deduplicate_candidates_for_display(
+            st.session_state.get("content_search_candidates", [])
+        )
         if candidates:
             st.markdown(
-                '<div class="search-result-title">검색 결과에서 정확한 작품을 선택하세요 '
-                '<span class="search-result-note">· 최대 5개가 보이며 아래로 스크롤할 수 있습니다.</span></div>',
+                f'<div class="search-result-title">검색 결과 '
+                f'<span class="search-result-count">{len(candidates)}</span>'
+                '<span class="search-result-note">정확한 작품을 선택하세요. 5개 이후는 내부 스크롤됩니다.</span></div>',
                 unsafe_allow_html=True,
             )
             meta = st.session_state.get("content_search_meta", {})
-            # 검색 결과가 많아도 화면 전체가 늘어나지 않도록 5개 높이에서 스크롤한다.
-            with st.container(height=515, border=True):
+            with st.container(height=480, border=True, key="candidate_results_shell"):
                 for index, candidate in enumerate(candidates):
                     candidate_title = clean_text(candidate.get("title", ""))
                     candidate_year = clean_text(candidate.get("year", ""))
                     candidate_type = clean_text(candidate.get("content_type", "")) or "자동 확인"
                     candidate_poster = clean_text(candidate.get("poster_url", ""))
-                    result_cols = st.columns([0.55, 3.2, 1.05], vertical_alignment="center")
-                    with result_cols[0]:
-                        if candidate_poster:
-                            st.image(candidate_poster, width=66)
-                    with result_cols[1]:
-                        st.markdown(f"**{html.escape(candidate_title)}**")
-                        st.caption(" · ".join(value for value in (candidate_year, candidate_type) if value))
-                    with result_cols[2]:
-                        if st.button("이 콘텐츠 추가", key=f"add_candidate_{index}", use_container_width=True):
-                            existing_titles = df["title"].apply(normalize_title).tolist() if not df.empty else []
-                            if normalize_title(candidate_title) in existing_titles:
-                                st.warning("이미 등록된 타이틀입니다.")
+                    with st.container(key=f"candidate_row_{index}"):
+                        result_cols = st.columns([0.45, 3.6, 1.22], gap="small", vertical_alignment="center")
+                        with result_cols[0]:
+                            if candidate_poster:
+                                st.image(candidate_poster, width=58)
                             else:
-                                candidate["query"] = clean_text(st.session_state.get("content_search_query", candidate_title))
-                                with st.spinner(f"'{candidate_title}'의 OTT 제공처를 확인하고 있습니다…"):
-                                    result = lookup_selected_kinolights(json.dumps(candidate, ensure_ascii=False))
-                                parsed_date = pd.to_datetime(meta.get("update_date"), errors="coerce")
-                                selected_date = parsed_date.date() if pd.notna(parsed_date) else date.today()
-                                new_row = result_to_row(
-                                    title=candidate_title,
-                                    update_date=selected_date,
-                                    content_type=clean_text(result.get("content_type", ""))
-                                    or candidate_type
-                                    or "기타",
-                                    open_year=candidate_year,
-                                    result=result,
+                                st.markdown(
+                                    f'<img src="{placeholder_poster(candidate_title)}" '
+                                    'style="width:58px;height:80px;object-fit:cover;border-radius:7px">',
+                                    unsafe_allow_html=True,
                                 )
-                                updated = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                                try:
-                                    history_event = make_history_event(
-                                        "추가",
-                                        new_row,
-                                        note="검색 결과에서 작품 선택 후 추가",
+                        with result_cols[1]:
+                            meta_text = " · ".join(
+                                value for value in (candidate_year, candidate_type) if value
+                            )
+                            st.markdown(
+                                f'<div class="candidate-title">{html.escape(candidate_title)}</div>'
+                                f'<div class="candidate-meta">{html.escape(meta_text or "정보 자동 확인")}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with result_cols[2]:
+                            if st.button(
+                                "이 콘텐츠 추가",
+                                key=f"add_candidate_{index}",
+                                use_container_width=True,
+                            ):
+                                existing_titles = (
+                                    df["title"].apply(normalize_title).tolist() if not df.empty else []
+                                )
+                                if normalize_title(candidate_title) in existing_titles:
+                                    render_duplicate_content_dialog(candidate_title)
+                                else:
+                                    candidate["query"] = clean_text(
+                                        st.session_state.get("content_search_query", candidate_title)
                                     )
-                                    warning = save_data(
-                                        updated,
-                                        f"Add B tv+ content: {candidate_title}",
-                                        [history_event],
+                                    with st.spinner(
+                                        f"'{candidate_title}'의 OTT 제공처를 확인하고 있습니다…"
+                                    ):
+                                        result = lookup_selected_kinolights(
+                                            json.dumps(candidate, ensure_ascii=False)
+                                        )
+                                    parsed_date = pd.to_datetime(
+                                        meta.get("update_date"), errors="coerce"
                                     )
-                                    st.session_state.pop("content_search_candidates", None)
-                                    st.session_state.pop("content_search_query", None)
-                                    st.session_state.pop("content_search_meta", None)
-                                    if warning:
-                                        st.session_state["_flash_warning"] = warning
-                                    else:
-                                        st.session_state["_flash_toast"] = f"'{candidate_title}'을(를) 추가했습니다."
-                                    st.rerun()
-                                except Exception as exc:
-                                    st.error(f"저장하지 못했습니다: {exc}")
-                    if index < len(candidates) - 1:
-                        st.divider()
+                                    selected_date = (
+                                        parsed_date.date() if pd.notna(parsed_date) else date.today()
+                                    )
+                                    new_row = result_to_row(
+                                        title=candidate_title,
+                                        update_date=selected_date,
+                                        content_type=clean_text(result.get("content_type", ""))
+                                        or candidate_type
+                                        or "기타",
+                                        open_year=candidate_year,
+                                        result=result,
+                                    )
+                                    updated = pd.concat(
+                                        [df, pd.DataFrame([new_row])], ignore_index=True
+                                    )
+                                    try:
+                                        history_event = make_history_event(
+                                            "추가",
+                                            new_row,
+                                            note="검색 결과에서 작품 선택 후 추가",
+                                        )
+                                        warning = save_data(
+                                            updated,
+                                            f"Add B tv+ content: {candidate_title}",
+                                            [history_event],
+                                        )
+                                        clear_content_search_results()
+                                        if warning:
+                                            st.session_state["_flash_warning"] = warning
+                                        else:
+                                            st.session_state["_flash_toast"] = (
+                                                f"'{candidate_title}'을(를) 추가했습니다."
+                                            )
+                                        st.rerun()
+                                    except Exception as exc:
+                                        st.error(f"저장하지 못했습니다: {exc}")
+
+            close_space, close_col = st.columns([5.2, 1.0], vertical_alignment="center")
+            with close_col:
+                if st.button(
+                    "검색 결과 닫기",
+                    key="search_results_close",
+                    use_container_width=True,
+                ):
+                    clear_content_search_results()
+                    st.rerun()
 else:
     st.caption("추가·재조회·삭제 기능은 관리자 로그인 후 사용할 수 있습니다.")
 
@@ -2074,28 +2246,38 @@ if not df.empty:
 month_options = ["전체"] + month_values
 month_label = lambda value: "전체" if value == "전체" else f"{value[:4]}년 {value[5:7]}월"
 
-with st.container(border=True):
-    search_col, type_col, start_col, end_col, storage_col = st.columns(
-        [2.65, 1.0, 1.08, 1.08, 1.05], vertical_alignment="center"
+# 위젯 상태가 현재 옵션에서 벗어난 경우 안전하게 초기화한다.
+type_values = ["전체"]
+if not df.empty:
+    present_types = sorted(
+        {clean_text(value) for value in df["content_type"].tolist() if clean_text(value)}
+    )
+    type_values += present_types
+if st.session_state.get("content_type_filter", "전체") not in type_values:
+    st.session_state["content_type_filter"] = "전체"
+for month_key in ("start_month_filter", "end_month_filter"):
+    if st.session_state.get(month_key, "전체") not in month_options:
+        st.session_state[month_key] = "전체"
+
+with st.container(border=True, key="content_filter_toolbar"):
+    search_col, type_col, start_col, tilde_col, end_col, reset_col, storage_col = st.columns(
+        [2.55, 0.9, 1.05, 0.14, 1.05, 0.86, 1.1],
+        gap="small",
+        vertical_alignment="center",
     )
     with search_col:
         search_text = st.text_input(
             "타이틀 검색",
-            placeholder="타이틀 검색",
+            placeholder="등록 타이틀 검색",
             label_visibility="collapsed",
+            key="content_title_filter",
         )
     with type_col:
-        # 현재 등록된 콘텐츠에 실제로 존재하는 구분만 표시한다.
-        type_values = ["전체"]
-        if not df.empty:
-            present_types = sorted(
-                {clean_text(value) for value in df["content_type"].tolist() if clean_text(value)}
-            )
-            type_values += present_types
         type_filter = st.selectbox(
             "장르",
             type_values,
             label_visibility="collapsed",
+            key="content_type_filter",
         )
     with start_col:
         start_month = st.selectbox(
@@ -2105,6 +2287,8 @@ with st.container(border=True):
             label_visibility="collapsed",
             key="start_month_filter",
         )
+    with tilde_col:
+        st.markdown('<div class="filter-tilde">~</div>', unsafe_allow_html=True)
     with end_col:
         end_month = st.selectbox(
             "종료 연월",
@@ -2113,9 +2297,24 @@ with st.container(border=True):
             label_visibility="collapsed",
             key="end_month_filter",
         )
+    with reset_col:
+        st.button(
+            "↺ 초기화",
+            key="reset_content_filters",
+            use_container_width=True,
+            on_click=reset_content_filters,
+        )
     with storage_col:
-        storage_text = "GitHub 영구 저장 + 기록" if github_config() else "앱 내 임시 저장"
-        st.caption(storage_text)
+        if github_config():
+            st.markdown(
+                '<div class="storage-pill"><span class="storage-dot"></span>GitHub 영구 저장</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="storage-pill"><span class="storage-dot temp"></span>앱 내 임시 저장</div>',
+                unsafe_allow_html=True,
+            )
 
 view = df.copy()
 if not view.empty:
