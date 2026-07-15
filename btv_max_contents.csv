@@ -1,1 +1,2 @@
-id,title,poster_url,btv_update_date,content_type,open_year,matched_title,matched_year,source_url,netflix,coupang,tving,wavve,disney,watcha,other_providers,lookup_status,last_checked
+﻿id,title,poster_url,btv_update_date,content_type,open_year,matched_title,matched_year,source_url,netflix,coupang,tving,wavve,disney,watcha,other_providers,lookup_status,last_checked
+bb6f5114e848,김부장,https://file.kinolights.com/m/content_poster/202606/19/d3c7cb43-35aa-4477-a569-e7d23a879baa.webp,2026-07-15,드라마,2026,김부장,2026,https://m.kinolights.com/season/153086,True,False,False,False,False,False,,조회 완료: 넷플릭스,2026.07.15 11:42
