@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v12 · UI 정렬·검색결과·필터 개선형"
+BUILD_LABEL = "v13 · 정렬·구분선·비주얼 개선형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -362,6 +362,182 @@ div[data-baseweb="select"] > div { min-height:46px; }
 .st-key-comparison_header { padding-left:14px !important; padding-right:14px !important; }
 [class*="st-key-content_row_"] { padding:7px 14px !important; }
 [class*="st-key-content_row_"] [data-testid="stHorizontalBlock"] { align-items:center; }
+
+/* v13: 기능과 배치는 유지하고 정렬·구분선·버튼 톤만 정돈 */
+:root {
+  --navy:#0b2a73;
+  --navy2:#173f9f;
+  --text:#101a38;
+  --muted:#717b91;
+  --line:#dce2ec;
+  --bg:#f7f9fc;
+}
+
+/* 전체 카드와 입력창: 흰 배경 + 얇은 선 + 아주 약한 그림자 */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+  border-color:var(--line) !important;
+  box-shadow:0 3px 12px rgba(16,35,83,.035) !important;
+}
+div[data-baseweb="input"],
+div[data-baseweb="select"] > div {
+  background:#fff !important;
+  border-color:#d8deea !important;
+}
+.stTextInput input, .stDateInput input { color:#1d2947 !important; }
+
+/* 버튼 톤: 1번 시안의 네이비 포인트 */
+.stButton > button,
+.stDownloadButton > button,
+[data-testid="stFormSubmitButton"] button {
+  border-radius:9px !important;
+  box-shadow:none !important;
+  transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;
+}
+.stButton > button:hover,
+.stDownloadButton > button:hover {
+  border-color:#9eb0da !important;
+  color:#113785 !important;
+  background:#f7f9ff !important;
+}
+.stButton > button[kind="primary"],
+[data-testid="stFormSubmitButton"] button[kind="primary"],
+[data-testid="stFormSubmitButton"] button {
+  background:linear-gradient(180deg,#173f9f 0%,#0b2a73 100%) !important;
+  border-color:#0b2a73 !important;
+  color:white !important;
+}
+.stButton > button[kind="primary"]:hover,
+[data-testid="stFormSubmitButton"] button:hover {
+  background:linear-gradient(180deg,#224db2 0%,#123587 100%) !important;
+  border-color:#123587 !important;
+  color:white !important;
+}
+
+/* 등록 표: 헤더·행·포스터·텍스트·버튼의 중심선을 동일하게 맞춘다. */
+.st-key-comparison_table_shell {
+  border-color:var(--line) !important;
+  box-shadow:0 4px 14px rgba(16,35,83,.035) !important;
+}
+.st-key-comparison_table_shell > div[data-testid="stVerticalBlock"] {
+  gap:0 !important;
+}
+.st-key-comparison_header {
+  min-height:54px;
+  padding:0 16px !important;
+  background:#fbfcff !important;
+  border-bottom:1px solid #d7deea !important;
+}
+.native-head {
+  min-height:54px;
+  line-height:1.25;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.native-head.left { justify-content:flex-start; }
+[class*="st-key-content_row_"] {
+  min-height:112px;
+  padding:9px 16px !important;
+  border-bottom:1px solid #dfe4ed !important;
+  box-sizing:border-box;
+}
+[class*="st-key-content_row_"]:last-child { border-bottom:0 !important; }
+[class*="st-key-content_row_"] [data-testid="stHorizontalBlock"] {
+  align-items:center !important;
+}
+[class*="st-key-content_row_"] [data-testid="stColumn"] {
+  align-self:center !important;
+}
+[class*="st-key-content_row_"] [data-testid="stMarkdownContainer"] {
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.poster {
+  width:62px;
+  height:88px;
+  border-radius:8px;
+  box-shadow:0 3px 9px rgba(20,35,76,.13);
+  display:block;
+}
+.title-main { font-size:14px; line-height:1.35; }
+.title-sub { margin-top:6px; line-height:1.45; }
+.native-cell {
+  min-height:88px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1.35;
+}
+.native-ox { min-height:88px; }
+[class*="st-key-native_refresh_"] button,
+[class*="st-key-native_delete_"] button {
+  width:36px !important;
+  min-width:36px !important;
+  height:36px !important;
+  min-height:36px !important;
+  margin:auto !important;
+  border-radius:8px !important;
+  border-color:#cfd7e6 !important;
+  color:#1a428f !important;
+}
+
+/* 검색 결과: 5개 높이 유지 + 각 결과 사이 명확한 구분선 */
+.search-result-title { margin:8px 2px 10px; }
+.st-key-candidate_results_shell {
+  padding:0 !important;
+  background:#fff !important;
+  border-color:#d8dfeb !important;
+  box-shadow:0 3px 12px rgba(16,35,83,.03) !important;
+}
+.st-key-candidate_results_shell > div[data-testid="stVerticalBlock"] {
+  gap:0 !important;
+}
+[class*="st-key-candidate_row_"] {
+  min-height:94px;
+  padding:10px 14px !important;
+  border-bottom:1px solid #dce2ec !important;
+  background:#fff;
+  box-sizing:border-box;
+}
+[class*="st-key-candidate_row_"]:last-child { border-bottom:0 !important; }
+[class*="st-key-candidate_row_"]:hover { background:#f9fbff !important; }
+[class*="st-key-candidate_row_"] [data-testid="stHorizontalBlock"] {
+  align-items:center !important;
+}
+[class*="st-key-candidate_row_"] [data-testid="stImage"] img {
+  width:56px !important;
+  height:78px !important;
+  border-radius:8px !important;
+}
+.candidate-title { font-size:14px; line-height:1.35; }
+.candidate-meta { margin-top:6px; }
+[class*="st-key-add_candidate_"] button {
+  height:40px !important;
+  min-height:40px !important;
+  border-radius:9px !important;
+  border-color:#cfd7e6 !important;
+  color:#193d85 !important;
+}
+.st-key-search_results_close button {
+  min-height:40px !important;
+  height:40px !important;
+  border-radius:9px !important;
+}
+
+/* 필터바는 높이와 기준선만 맞추고 구조는 유지 */
+.st-key-content_filter_toolbar {
+  border-color:var(--line) !important;
+  box-shadow:0 3px 12px rgba(16,35,83,.03) !important;
+}
+.st-key-content_filter_toolbar [data-testid="stHorizontalBlock"] {
+  align-items:center !important;
+}
+.storage-pill {
+  background:#fbfcff;
+  border-color:#dce2ec;
+  color:#58647d;
+}
 
 /* 관리 버튼은 링크가 아니라 Streamlit 기본 버튼이라 URL 이동이 발생하지 않는다. */
 
@@ -2046,7 +2222,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v12 · UI 정렬·검색결과·필터 개선형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v13 · 정렬·구분선·비주얼 개선형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
