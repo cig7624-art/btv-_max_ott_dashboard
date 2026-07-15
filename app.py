@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v14 · 영구저장·일괄삭제·라인 정렬형"
+BUILD_LABEL = "v15 · 영구저장·일괄삭제·전체 최신화형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -630,6 +630,27 @@ div[data-baseweb="select"] > div {
   background:#fff0f2 !important;
   border-color:#dc8f99 !important;
   color:#9d1f30 !important;
+}
+
+/* 전체 최신화 버튼: 영구 저장 상태 옆에서 같은 높이로 정렬 */
+.st-key-bulk_refresh_all button {
+  min-height:44px !important;
+  height:44px !important;
+  border-radius:8px !important;
+  border-color:#b9c7e6 !important;
+  background:#f3f6ff !important;
+  color:#173b87 !important;
+  font-size:11px !important;
+  font-weight:900 !important;
+  white-space:nowrap !important;
+}
+.st-key-bulk_refresh_all button:hover {
+  border-color:#7e96cf !important;
+  background:#eaf0ff !important;
+  color:#0d2f78 !important;
+}
+.st-key-bulk_refresh_all button:disabled {
+  opacity:.5 !important;
 }
 
 /* 관리 버튼은 링크가 아니라 Streamlit 기본 버튼이라 URL 이동이 발생하지 않는다. */
@@ -1830,6 +1851,51 @@ def fetch_refresh_result(target: Any) -> dict[str, Any]:
     )
 
 
+def fetch_refresh_result_in_context(context: Any, target: Any) -> dict[str, Any]:
+    """공유 브라우저 컨텍스트에서 저장된 작품을 최신 조회한다.
+
+    일괄 최신화는 작품마다 브라우저를 새로 띄우지 않고 하나의 컨텍스트를
+    재사용해 처리 시간을 줄인다. 캐시를 거치지 않으므로 현재 시점 정보를 조회한다.
+    """
+    title = clean_text(target.get("matched_title", "")) or clean_text(target.get("title", ""))
+    candidate = {
+        "title": title,
+        "poster_url": clean_text(target.get("poster_url", "")),
+        "url": clean_text(target.get("source_url", "")),
+        "year": clean_text(target.get("matched_year", "")) or clean_text(target.get("open_year", "")),
+        "content_type": clean_text(target.get("content_type", "")),
+        "query": clean_text(target.get("title", "")) or title,
+    }
+    try:
+        result = inspect_selected_candidate(context, candidate)
+        status = clean_text(result.get("status", "조회 완료"))
+        hard_failure = status in {
+            "상세 페이지 이동 실패",
+            "상세 작품 검증 실패",
+        }
+        return {
+            "ok": not hard_failure,
+            "status": status,
+            "providers": result.get("providers", []) or [],
+            "matched_title": title,
+            "matched_year": clean_text(result.get("year", "")),
+            "content_type": clean_text(result.get("content_type", ""))
+            or clean_text(target.get("content_type", ""))
+            or "기타",
+            "source_url": clean_text(result.get("source_url", ""))
+            or clean_text(target.get("source_url", "")),
+            "poster_url": clean_text(target.get("poster_url", "")),
+        }
+    except PlaywrightTimeoutError:
+        return {"ok": False, "status": "OTT 조회 시간 초과", "providers": []}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": f"OTT 조회 오류: {str(exc)[:80]}",
+            "providers": [],
+        }
+
+
 def result_preview_html(label: str, providers: list[str]) -> str:
     provider_set = set(providers)
     badges = []
@@ -1960,6 +2026,160 @@ def render_refresh_dialog(df: pd.DataFrame, row_id: str) -> None:
 
     if st.button("닫기", use_container_width=True):
         st.session_state.pop(preview_key, None)
+        st.rerun()
+
+
+@st.dialog("전체 OTT 정보 일괄 업데이트")
+def render_bulk_refresh_all_dialog(df: pd.DataFrame) -> None:
+    source_df = normalize_dataframe(df).copy()
+    total = len(source_df)
+    if source_df.empty:
+        st.info("업데이트할 콘텐츠가 없습니다.")
+        if st.button("닫기", use_container_width=True, key="close_empty_bulk_refresh"):
+            st.rerun()
+        return
+
+    st.markdown(
+        f'<div class="dialog-summary"><b>등록 콘텐츠 {total:,}개</b>의 키노라이츠 OTT 제공처를 '
+        '현재 시점 기준으로 다시 확인합니다.<br>'
+        '조회가 실패한 콘텐츠는 기존 저장값을 유지하고, 기존 O가 모두 X로 조회된 경우도 '
+        '안전을 위해 자동 덮어쓰지 않습니다.</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("콘텐츠 수에 따라 시간이 걸릴 수 있습니다. 완료될 때까지 창을 닫지 마세요.")
+
+    if st.button(
+        "전체 콘텐츠 최신 정보 확인 및 저장",
+        type="primary",
+        use_container_width=True,
+        key="run_bulk_refresh_all",
+    ):
+        progress = st.progress(0, text="일괄 업데이트를 시작합니다…")
+        status_box = st.empty()
+        updated = source_df.copy()
+        history_events: list[dict[str, Any]] = []
+        refreshed_count = 0
+        changed_count = 0
+        unchanged_count = 0
+        failed_titles: list[str] = []
+        protected_titles: list[str] = []
+
+        try:
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(**browser_launch_kwargs())
+                context = browser.new_context(
+                    viewport={"width": 430, "height": 1600},
+                    locale="ko-KR",
+                    timezone_id="Asia/Seoul",
+                    user_agent=(
+                        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+                        "Mobile/15E148 Safari/604.1"
+                    ),
+                )
+
+                for position, (index, target) in enumerate(source_df.iterrows(), start=1):
+                    title = clean_text(target.get("title", ""))
+                    status_box.caption(f"{position}/{total} · {title} 확인 중")
+                    result = fetch_refresh_result_in_context(context, target)
+                    current_providers = {
+                        provider
+                        for provider, column in OTT_COLUMNS.items()
+                        if as_bool(target.get(column, False))
+                    }
+
+                    if not result.get("ok"):
+                        failed_titles.append(title)
+                    else:
+                        new_providers = set(result.get("providers", []) or [])
+                        # 기존에 O가 있었는데 새 결과가 모두 X이면 크롤러 이상 가능성이 있어 보호한다.
+                        if current_providers and not new_providers:
+                            protected_titles.append(title)
+                        else:
+                            parsed_date = pd.to_datetime(
+                                target.get("btv_update_date"), errors="coerce"
+                            )
+                            update_date = (
+                                parsed_date.date() if pd.notna(parsed_date) else date.today()
+                            )
+                            replacement = result_to_row(
+                                title=title,
+                                update_date=update_date,
+                                content_type=clean_text(target.get("content_type", "")),
+                                open_year=clean_text(target.get("open_year", "")),
+                                result=result,
+                                row_id=clean_text(target.get("id", "")),
+                                existing_poster_url=clean_text(target.get("poster_url", "")),
+                            )
+                            for key, value in replacement.items():
+                                updated.at[index, key] = value
+
+                            changed = current_providers != new_providers
+                            if changed:
+                                changed_count += 1
+                            else:
+                                unchanged_count += 1
+                            refreshed_count += 1
+                            history_events.append(
+                                make_history_event(
+                                    "일괄 재확인",
+                                    replacement,
+                                    previous_row=target,
+                                    note=(
+                                        "전체 최신화 · OTT 편성 변경"
+                                        if changed
+                                        else "전체 최신화 · 편성 변경 없음"
+                                    ),
+                                )
+                            )
+
+                    progress.progress(
+                        position / total,
+                        text=f"{position}/{total} · {title} 확인 완료",
+                    )
+
+                context.close()
+                browser.close()
+
+            if refreshed_count:
+                warning = save_data(
+                    updated,
+                    f"Bulk refresh OTT providers: {refreshed_count}/{total} items",
+                    history_events,
+                )
+                summary = (
+                    f"전체 최신화 완료: 확인 {refreshed_count}개 · 변경 {changed_count}개 · "
+                    f"변경 없음 {unchanged_count}개"
+                )
+                if failed_titles or protected_titles:
+                    detail_parts = []
+                    if failed_titles:
+                        detail_parts.append(f"조회 실패 {len(failed_titles)}개")
+                    if protected_titles:
+                        detail_parts.append(f"모두 X 결과 보호 {len(protected_titles)}개")
+                    st.session_state["_flash_warning"] = (
+                        summary + " · " + " · ".join(detail_parts)
+                    )
+                elif warning:
+                    st.session_state["_flash_warning"] = summary + " · " + warning
+                else:
+                    st.session_state["_flash_toast"] = summary
+                st.rerun()
+            else:
+                st.error(
+                    "저장 가능한 최신 조회 결과가 없습니다. 기존 값은 모두 그대로 유지했습니다."
+                )
+                if failed_titles:
+                    st.caption("조회 실패: " + ", ".join(failed_titles[:10]))
+                if protected_titles:
+                    st.caption(
+                        "모두 X로 조회되어 보호한 콘텐츠: "
+                        + ", ".join(protected_titles[:10])
+                    )
+        except Exception as exc:
+            st.error(f"전체 최신화를 완료하지 못했습니다. 기존 저장값은 유지됩니다: {exc}")
+
+    if st.button("닫기", use_container_width=True, key="close_bulk_refresh_all"):
         st.rerun()
 
 
@@ -2480,7 +2700,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v14 · 영구저장·일괄삭제·라인 정렬형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v15 · 영구저장·일괄삭제·전체 최신화형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2694,8 +2914,8 @@ for month_key in ("start_month_filter", "end_month_filter"):
         st.session_state[month_key] = "전체"
 
 with st.container(border=True, key="content_filter_toolbar"):
-    search_col, type_col, start_col, tilde_col, end_col, reset_col, storage_col = st.columns(
-        [2.55, 0.9, 1.05, 0.14, 1.05, 0.86, 1.1],
+    search_col, type_col, start_col, tilde_col, end_col, reset_col, refresh_col, storage_col = st.columns(
+        [2.28, 0.78, 0.94, 0.12, 0.94, 0.74, 1.02, 1.04],
         gap="small",
         vertical_alignment="center",
     )
@@ -2738,6 +2958,15 @@ with st.container(border=True, key="content_filter_toolbar"):
             use_container_width=True,
             on_click=reset_content_filters,
         )
+    with refresh_col:
+        if st.button(
+            "⟳ 전체 최신화",
+            key="bulk_refresh_all",
+            use_container_width=True,
+            disabled=df.empty or not is_admin(),
+            help="등록된 모든 콘텐츠의 키노라이츠 OTT 편성정보를 현재 시점 기준으로 다시 확인합니다.",
+        ):
+            render_bulk_refresh_all_dialog(df)
     with storage_col:
         if github_config():
             st.markdown(
