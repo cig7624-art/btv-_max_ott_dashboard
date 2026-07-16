@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v20.1 · 모바일 선택 오류 수정형"
+BUILD_LABEL = "v21 · PC 포스터·링크·연도·모바일 카드 개선형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -199,13 +199,17 @@ div[data-baseweb="select"] > div { min-height:46px; }
   width:100%; min-height:30px; line-height:1.2;
 }
 .ott-cell { padding-left:4px !important; padding-right:4px !important; }
+.poster-link { display:inline-flex; line-height:0; text-decoration:none; border-radius:9px; }
 .poster {
-  width:66px; height:94px; object-fit:cover; border-radius:7px; flex:0 0 auto;
-  background:#e9ecf4; box-shadow:0 2px 6px rgba(20,28,60,.14);
+  width:78px; height:112px; object-fit:cover; border-radius:9px; flex:0 0 auto;
+  background:#e9ecf4; box-shadow:0 3px 9px rgba(20,28,60,.16);
+  transition:transform .15s ease, box-shadow .15s ease;
 }
+.poster-link:hover .poster { transform:translateY(-1px); box-shadow:0 5px 13px rgba(20,28,60,.22); }
 .title-main { font-weight:950; font-size:14px; color:#121a35; line-height:1.4; }
+.title-main a, .mobile-card-title a { color:inherit; text-decoration:none; }
+.title-main a:hover, .mobile-card-title a:hover { color:#173b9b; text-decoration:underline; text-underline-offset:3px; }
 .title-sub { font-size:11px; color:#747d93; margin-top:5px; line-height:1.55; }
-.title-sub a { color:#193fb0; text-decoration:none; font-weight:800; }
 .type-badge { display:inline-block; border-radius:6px; padding:5px 9px; font-size:11px; font-weight:900; }
 .type-drama { color:#1764c0; background:#e9f3ff; }
 .type-movie { color:#7346c3; background:#f1eaff; }
@@ -260,7 +264,7 @@ div[data-baseweb="select"] > div { min-height:46px; }
 }
 .native-head.left { justify-content:flex-start; text-align:left; }
 .native-cell { width:100%; text-align:center; font-size:13px; color:#25304d; }
-.native-ox { display:flex; align-items:center; justify-content:center; min-height:82px; }
+.native-ox { display:flex; align-items:center; justify-content:center; min-height:116px; }
 
 /* v11: 카드가 여러 개로 보이지 않도록 하나의 표처럼 연결한다. */
 .st-key-comparison_table_shell {
@@ -271,7 +275,7 @@ div[data-baseweb="select"] > div { min-height:46px; }
   background:#fbfbfd; border-bottom:1px solid var(--line); padding:0 12px;
 }
 [class*="st-key-content_row_"] {
-  background:white; border-bottom:1px solid var(--line); padding:8px 12px;
+  background:white; border-bottom:1px solid var(--line); padding:10px 12px; min-height:132px;
 }
 [class*="st-key-content_row_"]:hover { background:#fafcff; }
 .st-key-comparison_table_shell [data-testid="stMarkdownContainer"] p { margin-bottom:0; }
@@ -436,8 +440,8 @@ div[data-baseweb="select"] > div {
 }
 .native-head.left { justify-content:flex-start; }
 [class*="st-key-content_row_"] {
-  min-height:112px;
-  padding:9px 16px !important;
+  min-height:132px;
+  padding:10px 16px !important;
   border-bottom:1px solid #dfe4ed !important;
   box-sizing:border-box;
 }
@@ -454,22 +458,22 @@ div[data-baseweb="select"] > div {
   justify-content:center;
 }
 .poster {
-  width:62px;
-  height:88px;
-  border-radius:8px;
-  box-shadow:0 3px 9px rgba(20,35,76,.13);
+  width:78px;
+  height:112px;
+  border-radius:9px;
+  box-shadow:0 3px 10px rgba(20,35,76,.16);
   display:block;
 }
 .title-main { font-size:14px; line-height:1.35; }
 .title-sub { margin-top:6px; line-height:1.45; }
 .native-cell {
-  min-height:88px;
+  min-height:116px;
   display:flex;
   align-items:center;
   justify-content:center;
   line-height:1.35;
 }
-.native-ox { min-height:88px; }
+.native-ox { min-height:116px; }
 [class*="st-key-native_refresh_"] button,
 [class*="st-key-native_delete_"] button {
   width:36px !important;
@@ -597,10 +601,11 @@ div[data-baseweb="select"] > div {
   font-weight:850;
   font-variant-numeric:tabular-nums;
 }
-.row-number { min-height:88px; font-size:12px; }
-[class*="st-key-bulk_select_"] { display:flex; align-items:center; justify-content:center; }
-[class*="st-key-bulk_select_"] [data-testid="stCheckbox"] { margin:0 auto !important; }
-[class*="st-key-bulk_select_"] label { padding:0 !important; }
+.row-number { min-height:116px; font-size:12px; }
+[class*="st-key-bulk_row_select_"] { display:flex; align-items:center; justify-content:center; min-height:116px; }
+[class*="st-key-bulk_row_select_"] [data-testid="stCheckbox"] { margin:0 auto !important; display:flex; align-items:center; justify-content:center; }
+[class*="st-key-bulk_row_select_"] label { padding:0 !important; }
+.st-key-comparison_header [data-testid="stCheckbox"] { min-height:54px; display:flex; align-items:center; justify-content:center; margin:0 auto !important; }
 
 /* 선택 콘텐츠 일괄 작업 바 */
 .st-key-bulk_action_bar {
@@ -823,7 +828,7 @@ div[data-baseweb="select"] > div {
     gap:7px !important;
   }
   [class*="st-key-mobile_content_card_"] .poster {
-    width:58px !important; height:82px !important; border-radius:8px !important;
+    width:64px !important; height:92px !important; border-radius:9px !important;
   }
   .mobile-card-number {
     width:25px; height:25px; display:flex; align-items:center; justify-content:center;
@@ -1764,6 +1769,102 @@ def extract_year(text: str) -> str:
     return match.group(0) if match else ""
 
 
+def extract_detail_release_year(page: Any, fallback: str = "") -> str:
+    """Read only the work metadata year, never a year inside the synopsis.
+
+    Kinolights places the release year in a compact metadata row such as
+    ``15+ · 2025 · 영화 · 120분``. The previous implementation searched the
+    whole body and therefore mistook synopsis years such as 1937 for the
+    release year.
+    """
+    fallback = clean_text(fallback)
+
+    # Structured metadata is the most reliable source when available.
+    try:
+        scripts = page.locator("script[type='application/ld+json']").all_text_contents()
+        import json as _json
+
+        def walk(value: Any) -> str:
+            if isinstance(value, dict):
+                for key in ("datePublished", "releaseDate", "startDate", "productionDate"):
+                    raw = clean_text(value.get(key, ""))
+                    year = extract_year(raw)
+                    if year:
+                        return year
+                for child in value.values():
+                    year = walk(child)
+                    if year:
+                        return year
+            elif isinstance(value, list):
+                for child in value:
+                    year = walk(child)
+                    if year:
+                        return year
+            return ""
+
+        for script in scripts:
+            try:
+                year = walk(_json.loads(script))
+                if year:
+                    return year
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Explicit date metadata.
+    for selector, attribute in (
+        ("meta[itemprop='datePublished']", "content"),
+        ("meta[property='video:release_date']", "content"),
+        ("time[datetime]", "datetime"),
+    ):
+        try:
+            value = page.locator(selector).first.get_attribute(attribute)
+            year = extract_year(value)
+            if year:
+                return year
+        except Exception:
+            pass
+
+    # Visible compact metadata row. Standalone years separated by dots/spaces
+    # are accepted; strings such as '1937년' in a synopsis are rejected.
+    try:
+        metadata_texts = page.evaluate(
+            r"""
+            () => {
+              const yearRe = /(?:^|[\s·|/])((?:19|20)\d{2})(?=$|[\s·|/])/;
+              const metaHint = /(영화|드라마|예능|애니|시리즈|다큐|키즈|\d+분|\d+부작|전체|\d+\+)/;
+              const rows = [];
+              for (const el of document.querySelectorAll('main *, body *')) {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                if (style.display === 'none' || style.visibility === 'hidden' || rect.width < 1 || rect.height < 1) continue;
+                const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+                if (!text || text.length > 150 || !yearRe.test(text) || !metaHint.test(text)) continue;
+                if (/\d{4}년/.test(text)) continue;
+                let score = 0;
+                if (text.includes('·')) score += 6;
+                if (/\d+분/.test(text)) score += 4;
+                if (/(영화|드라마|예능|애니|시리즈)/.test(text)) score += 3;
+                if (rect.top >= 0 && rect.top < 900) score += 3;
+                score -= text.length / 100;
+                rows.push({text, score});
+              }
+              rows.sort((a, b) => b.score - a.score);
+              return rows.slice(0, 12).map(row => row.text);
+            }
+            """
+        )
+        for text in metadata_texts or []:
+            match = re.search(r"(?:^|[\s·|/])((?:19|20)\d{2})(?=$|[\s·|/])", clean_text(text))
+            if match:
+                return match.group(1)
+    except Exception:
+        pass
+
+    return fallback
+
+
 def infer_content_type(text: str, source_url: str = "") -> str:
     """키노라이츠 카드/상세 문구에서 콘텐츠 구분을 자동 추정한다."""
     normalized = clean_text(text).lower()
@@ -2135,7 +2236,9 @@ def inspect_selected_candidate(context: Any, candidate: dict[str, str]) -> dict[
         return {
             **candidate,
             "providers": providers,
-            "year": extract_year(body_text) or clean_text(candidate.get("year", "")),
+            "year": extract_detail_release_year(
+                detail, clean_text(candidate.get("year", ""))
+            ),
             "content_type": infer_content_type(body_text[:3500], detail.url)
             or clean_text(candidate.get("content_type", ""))
             or "기타",
@@ -2238,15 +2341,16 @@ def result_to_row(
     existing_poster_url: str = "",
 ) -> dict[str, Any]:
     providers = result.get("providers", []) or []
+    resolved_year = clean_text(result.get("matched_year", "")) or clean_text(open_year)
     row: dict[str, Any] = {
         "id": row_id or uuid.uuid4().hex[:12],
         "title": clean_text(title),
         "poster_url": clean_text(result.get("poster_url", "")) or clean_text(existing_poster_url),
         "btv_update_date": str(update_date),
         "content_type": clean_text(content_type) or clean_text(result.get("content_type", "")) or "기타",
-        "open_year": clean_text(open_year),
+        "open_year": resolved_year,
         "matched_title": clean_text(result.get("matched_title", "")),
-        "matched_year": clean_text(result.get("matched_year", "")),
+        "matched_year": resolved_year,
         "source_url": clean_text(result.get("source_url", "")),
         "other_providers": ", ".join([name for name in providers if name not in OTT_COLUMNS]),
         "lookup_status": clean_text(result.get("status", "조회 실패")),
@@ -2785,12 +2889,32 @@ def placeholder_poster(title: str) -> str:
 
 
 def poster_html(row: pd.Series) -> str:
-    fallback = placeholder_poster(clean_text(row.get("title", "")))
+    title = clean_text(row.get("title", ""))
+    fallback = placeholder_poster(title)
     poster = clean_text(row.get("poster_url", "")) or fallback
-    return (
+    image = (
         f'<img class="poster" src="{html.escape(poster, quote=True)}" '
-        f'onerror="this.onerror=null;this.src=\'{fallback}\';" alt="포스터">'
+        f'onerror="this.onerror=null;this.src=\'{fallback}\';" alt="{html.escape(title, quote=True)} 포스터">'
     )
+    source_url = clean_text(row.get("source_url", ""))
+    if source_url:
+        return (
+            f'<a class="poster-link" href="{html.escape(source_url, quote=True)}" '
+            f'target="_blank" rel="noopener noreferrer" title="키노라이츠에서 {html.escape(title, quote=True)} 보기">'
+            f'{image}</a>'
+        )
+    return image
+
+
+def linked_title_html(title: str, source_url: str, css_class: str = "title-main") -> str:
+    safe_title = html.escape(clean_text(title))
+    source_url = clean_text(source_url)
+    if source_url:
+        return (
+            f'<div class="{css_class}"><a href="{html.escape(source_url, quote=True)}" '
+            f'target="_blank" rel="noopener noreferrer">{safe_title}</a></div>'
+        )
+    return f'<div class="{css_class}">{safe_title}</div>'
 
 
 def type_badge(content_type: str) -> str:
@@ -3038,17 +3162,10 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     details.append(open_year)
                 if matched_title and normalize_title(matched_title) != normalize_title(title):
                     details.append(f"매칭: {matched_title}")
-                elif matched_year and matched_year not in details:
-                    details.append(matched_year)
                 if last_checked:
                     details.append(f"확인 {last_checked}")
 
                 detail_text = " · ".join(html.escape(item) for item in details)
-                if source_url:
-                    source_link = (
-                        f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
-                    )
-                    detail_text += (" · " if detail_text else "") + source_link
 
                 with st.container(key=f"content_row_{row_id}"):
                     columns = st.columns(widths, gap="small", vertical_alignment="center")
@@ -3072,14 +3189,14 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
 
                     with columns[1]:
                         poster_col, copy_col = st.columns(
-                            [0.34, 1.0], gap="small", vertical_alignment="center"
+                            [0.43, 1.0], gap="small", vertical_alignment="center"
                         )
                         with poster_col:
                             st.markdown(poster_html(row), unsafe_allow_html=True)
                         with copy_col:
                             st.markdown(
-                                f'<div class="title-main">{html.escape(title)}</div>'
-                                f'<div class="title-sub">{detail_text or "-"}</div>',
+                                linked_title_html(title, source_url)
+                                + f'<div class="title-sub">{detail_text or "-"}</div>',
                                 unsafe_allow_html=True,
                             )
 
@@ -3167,19 +3284,12 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     mobile_details.append(open_year)
                 if matched_title and normalize_title(matched_title) != normalize_title(title):
                     mobile_details.append(f"매칭: {matched_title}")
-                elif matched_year and matched_year not in mobile_details:
-                    mobile_details.append(matched_year)
                 if update_date_text:
                     mobile_details.append(f"B tv+ {update_date_text}")
                 if last_checked:
                     mobile_details.append(f"확인 {last_checked}")
 
                 mobile_detail_text = " · ".join(html.escape(item) for item in mobile_details)
-                if source_url:
-                    mobile_source_link = (
-                        f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
-                    )
-                    mobile_detail_text += (" · " if mobile_detail_text else "") + mobile_source_link
 
                 canonical_key = f"{BULK_SELECTION_PREFIX}{row_id}"
                 mobile_key = f"{MOBILE_SELECTION_PREFIX}{row_id}"
@@ -3207,9 +3317,9 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                         st.markdown(poster_html(row), unsafe_allow_html=True)
                     with copy_col:
                         st.markdown(
-                            f'<div class="mobile-card-title">{html.escape(title)}</div>'
-                            f'<div class="mobile-card-meta">{mobile_detail_text or "-"}</div>'
-                            f'<div class="mobile-card-type">{type_badge(content_type_text)}</div>',
+                            linked_title_html(title, source_url, "mobile-card-title")
+                            + f'<div class="mobile-card-meta">{mobile_detail_text or "-"}</div>'
+                            + f'<div class="mobile-card-type">{type_badge(content_type_text)}</div>',
                             unsafe_allow_html=True,
                         )
 
