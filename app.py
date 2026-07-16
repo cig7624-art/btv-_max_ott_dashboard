@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v22 · PC 표 간격·정렬 개선형"
+BUILD_LABEL = "v22 · 모바일 체크박스·번호 정렬 수정형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -544,56 +544,6 @@ div[data-baseweb="select"] > div {
 }
 
 
-/* v22: PC 표 좌측 밀도·기준선 정리 (모바일 카드에는 영향 없음) */
-@media (min-width: 801px) {
-  /* 필터 마지막 저장 상태를 버튼들과 같은 기준선에 맞춘다. */
-  .st-key-content_filter_toolbar > div [data-testid="stHorizontalBlock"] {
-    align-items:center !important;
-  }
-  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child,
-  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child > div,
-  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child [data-testid="stMarkdownContainer"] {
-    height:44px !important;
-    min-height:44px !important;
-    display:flex !important;
-    align-items:center !important;
-    margin:0 !important;
-    padding:0 !important;
-  }
-  .st-key-content_filter_toolbar .storage-pill {
-    height:44px !important;
-    min-height:44px !important;
-    margin:0 !important;
-    align-self:center !important;
-  }
-
-  /* 체크박스와 번호를 같은 수평선에 놓고 좌측 여백을 줄인다. */
-  .st-key-comparison_header [data-testid="stCheckbox"],
-  [class*="st-key-bulk_row_select_"] [data-testid="stCheckbox"] {
-    width:100% !important;
-    display:flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    margin:0 !important;
-  }
-  .st-key-comparison_header [data-testid="stCheckbox"] label,
-  [class*="st-key-bulk_row_select_"] [data-testid="stCheckbox"] label {
-    margin:0 !important;
-    padding:0 !important;
-  }
-  .selection-head, .row-number {
-    width:100%;
-    padding:0 !important;
-    margin:0 !important;
-    text-align:center;
-  }
-
-  /* 포스터·타이틀 셀의 불필요한 안쪽 여백만 줄인다. */
-  [class*="st-key-content_row_"] .poster { margin:0 !important; }
-  [class*="st-key-content_row_"] .title-main,
-  [class*="st-key-content_row_"] .title-sub { margin-left:0 !important; }
-}
-
 /* v14: 검색 결과와 등록 목록의 행 구분선을 실제 컨테이너 폭 전체에 표시 */
 [class*="st-key-candidate_row_"],
 [class*="st-key-content_row_"] {
@@ -877,6 +827,45 @@ div[data-baseweb="select"] > div {
     align-items:center !important;
     gap:7px !important;
   }
+
+  /* 모바일 카드 첫 줄: 체크박스·번호·포스터·정보를 한 줄에 고정 */
+  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) {
+    display:flex !important;
+    flex-direction:row !important;
+    flex-wrap:nowrap !important;
+    align-items:flex-start !important;
+    gap:8px !important;
+    width:100% !important;
+  }
+  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(1) {
+    flex:0 0 28px !important; width:28px !important; min-width:28px !important;
+  }
+  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(2) {
+    flex:0 0 25px !important; width:25px !important; min-width:25px !important;
+  }
+  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(3) {
+    flex:0 0 64px !important; width:64px !important; min-width:64px !important;
+  }
+  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(4) {
+    flex:1 1 auto !important; width:auto !important; min-width:0 !important;
+  }
+  [class*="st-key-mobile_select_"] {
+    min-height:25px !important;
+    display:flex !important;
+    align-items:flex-start !important;
+    justify-content:center !important;
+    padding-top:1px !important;
+  }
+  [class*="st-key-mobile_select_"] [data-testid="stCheckbox"] {
+    margin:0 !important;
+    min-height:25px !important;
+  }
+  [class*="st-key-mobile_select_"] label { padding:0 !important; }
+  [class*="st-key-mobile_select_"] label > div:first-child {
+    margin:0 !important;
+  }
+  .mobile-card-number { margin-top:1px !important; }
+  [class*="st-key-mobile_content_card_"] .poster-link { display:block !important; }
   [class*="st-key-mobile_content_card_"] .poster {
     width:64px !important; height:92px !important; border-radius:9px !important;
   }
@@ -3150,7 +3139,7 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     render_bulk_delete_dialog(full_df, selected_ids)
 
     # 선택/번호 열을 추가하고 기존 열 비율은 최대한 유지한다.
-    widths = [0.58, 2.95, 1.20, 0.94, 0.86, 0.90, 0.74, 0.84, 1.04, 0.72, 0.92]
+    widths = [0.72, 3.35, 1.25, 0.98, 0.88, 0.92, 0.76, 0.86, 1.06, 0.74, 0.96]
 
     mobile_mode = is_mobile_client()
 
@@ -3164,7 +3153,7 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     select_key = (
                         f"bulk_select_all_{current_page}_{select_hash}_{page_selected_count}"
                     )
-                    select_col, no_col = st.columns([0.68, 0.82], gap=None, vertical_alignment="center")
+                    select_col, no_col = st.columns([0.8, 1.0], gap="small", vertical_alignment="center")
                     with select_col:
                         page_toggle = st.checkbox(
                             "현재 페이지 전체 선택",
@@ -3222,7 +3211,7 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
 
                     with columns[0]:
                         checkbox_col, number_col = st.columns(
-                            [0.68, 0.82], gap=None, vertical_alignment="center"
+                            [0.8, 1.0], gap="small", vertical_alignment="center"
                         )
                         with checkbox_col:
                             st.checkbox(
