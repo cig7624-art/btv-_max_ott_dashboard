@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v18 · 전체 최신화 변경 판정 수정형"
+BUILD_LABEL = "v19 · PC 유지·모바일 카드 반응형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -655,13 +655,252 @@ div[data-baseweb="select"] > div {
 
 /* 관리 버튼은 링크가 아니라 Streamlit 기본 버튼이라 URL 이동이 발생하지 않는다. */
 
+/* 모바일 전용 목록은 PC에서 렌더링만 하고 보이지 않게 한다. */
+.st-key-mobile_cards_shell,
+.st-key-mobile_list_toolbar { display:none; }
+
 @media (max-width:800px) {
-  .block-container { padding-left:1rem; padding-right:1rem; }
-  .topbar { margin-left:-1rem; margin-right:-1rem; padding:18px; }
-  .brand { display:block; }
-  .brand-main { font-size:26px; }
-  .brand-sub { display:block; margin-top:7px; font-size:15px; }
-  .update-pill { display:none; }
+  html, body, [data-testid="stAppViewContainer"], .stApp {
+    overflow-x:hidden !important;
+  }
+  .stApp { background:#f4f6fb !important; color:#111a3b; }
+  .block-container {
+    max-width:100% !important;
+    padding:0 .72rem 2.2rem !important;
+  }
+  [data-testid="stToolbar"] { display:none !important; }
+
+  /* 상단 브랜드 */
+  .topbar {
+    margin-left:-.72rem !important;
+    margin-right:-.72rem !important;
+    padding:16px 15px !important;
+    border-radius:0 0 14px 14px;
+  }
+  .brand { display:block !important; }
+  .brand-main { display:block; font-size:25px !important; }
+  .brand-sub { display:block; margin-top:7px; font-size:15px !important; }
+  .update-pill { display:none !important; }
+
+  /* 제목과 상단 기능 버튼: 제목 1행 + 버튼 3열 */
+  .st-key-page_intro_actions [data-testid="stHorizontalBlock"] {
+    flex-wrap:wrap !important;
+    gap:8px !important;
+  }
+  .st-key-page_intro_actions [data-testid="stColumn"]:nth-child(1) {
+    flex:0 0 100% !important; width:100% !important;
+  }
+  .st-key-page_intro_actions [data-testid="stColumn"]:nth-child(n+2) {
+    flex:1 1 calc(33.333% - 6px) !important;
+    width:calc(33.333% - 6px) !important;
+    min-width:0 !important;
+  }
+  .intro { padding:19px 2px 9px !important; }
+  .intro-title { font-size:20px !important; line-height:1.35; }
+  .intro-sub { font-size:12px !important; line-height:1.55; }
+  .st-key-page_intro_actions button {
+    min-height:42px !important; height:42px !important;
+    padding:0 5px !important; font-size:11px !important;
+  }
+
+  /* 새 콘텐츠 검색: 타이틀/날짜/검색 버튼 세로 배치 */
+  .st-key-new_content_search_box {
+    padding:12px !important; border-radius:13px !important;
+  }
+  .st-key-new_content_search_box form [data-testid="stHorizontalBlock"] {
+    flex-direction:column !important;
+    gap:8px !important;
+  }
+  .st-key-new_content_search_box form [data-testid="stColumn"] {
+    flex:0 0 100% !important; width:100% !important; min-width:100% !important;
+  }
+  .st-key-new_content_search_box input,
+  .st-key-new_content_search_box button {
+    min-height:44px !important; height:44px !important;
+  }
+
+  /* 검색 결과: 카드 한 줄 + 추가 버튼은 아래 전체 폭 */
+  .search-result-title {
+    flex-wrap:wrap; align-items:center; line-height:1.45; margin-top:12px;
+  }
+  .search-result-note { flex:0 0 100%; margin-left:34px; }
+  .st-key-candidate_results_shell {
+    height:455px !important;
+    padding:0 !important;
+    border-radius:12px !important;
+  }
+  [class*="st-key-candidate_row_"] {
+    min-height:132px !important;
+    padding:11px 10px !important;
+  }
+  [class*="st-key-candidate_row_"] > div [data-testid="stHorizontalBlock"] {
+    flex-wrap:wrap !important;
+    gap:7px !important;
+  }
+  [class*="st-key-candidate_row_"] [data-testid="stColumn"]:nth-child(1) {
+    flex:0 0 62px !important; width:62px !important; min-width:62px !important;
+  }
+  [class*="st-key-candidate_row_"] [data-testid="stColumn"]:nth-child(2) {
+    flex:1 1 calc(100% - 70px) !important; width:auto !important; min-width:0 !important;
+  }
+  [class*="st-key-candidate_row_"] [data-testid="stColumn"]:nth-child(3) {
+    flex:0 0 100% !important; width:100% !important; min-width:100% !important;
+  }
+  [class*="st-key-add_candidate_"] button {
+    width:100% !important; min-height:40px !important;
+  }
+  .st-key-search_results_close button { width:100% !important; }
+
+  /* 필터: 검색 1행 / 장르 1행 / 기간 1행 / 기능 2열 / 저장상태 1행 */
+  .st-key-content_filter_toolbar {
+    padding:10px !important; border-radius:13px !important;
+  }
+  .st-key-content_filter_toolbar > div [data-testid="stHorizontalBlock"] {
+    flex-wrap:wrap !important;
+    gap:8px !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"] {
+    min-width:0 !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(1) {
+    flex:0 0 100% !important; width:100% !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(2) {
+    flex:0 0 100% !important; width:100% !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(3),
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(5) {
+    flex:1 1 calc(46% - 5px) !important; width:calc(46% - 5px) !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(4) {
+    flex:0 0 24px !important; width:24px !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(6),
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(7) {
+    flex:1 1 calc(50% - 4px) !important; width:calc(50% - 4px) !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:nth-child(8) {
+    flex:0 0 100% !important; width:100% !important;
+  }
+  .st-key-content_filter_toolbar input,
+  .st-key-content_filter_toolbar div[data-baseweb="select"] > div,
+  .st-key-content_filter_toolbar button,
+  .storage-pill {
+    min-height:43px !important; height:43px !important;
+  }
+  .filter-tilde { min-height:43px !important; height:43px !important; }
+
+  /* PC 표는 모바일에서만 숨기고, 카드 목록을 표시 */
+  .st-key-comparison_table_shell { display:none !important; }
+  .st-key-mobile_cards_shell { display:block !important; margin-top:12px; }
+  .st-key-mobile_list_toolbar { display:block !important; margin-bottom:8px; }
+  .st-key-mobile_list_toolbar > div[data-testid="stVerticalBlockBorderWrapper"] {
+    padding:9px 10px !important;
+    background:#f8faff !important;
+    border-radius:11px !important;
+  }
+  .mobile-list-summary {
+    min-height:40px; display:flex; align-items:center;
+    color:#536078; font-size:12px;
+  }
+  .st-key-mobile_list_toolbar button {
+    min-height:40px !important; height:40px !important;
+    font-size:11px !important; padding:0 8px !important;
+  }
+
+  [class*="st-key-mobile_content_card_"] {
+    margin:0 0 11px !important;
+    padding:12px !important;
+    background:#fff !important;
+    border:1px solid #dbe2ee !important;
+    border-radius:15px !important;
+    box-shadow:0 4px 14px rgba(18,35,76,.055) !important;
+  }
+  [class*="st-key-mobile_content_card_"] > div[data-testid="stVerticalBlock"] {
+    gap:9px !important;
+  }
+  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"] {
+    align-items:center !important;
+    gap:7px !important;
+  }
+  [class*="st-key-mobile_content_card_"] .poster {
+    width:58px !important; height:82px !important; border-radius:8px !important;
+  }
+  .mobile-card-number {
+    width:25px; height:25px; display:flex; align-items:center; justify-content:center;
+    border-radius:999px; background:#edf2ff; color:#25459a;
+    font-size:11px; font-weight:950;
+  }
+  .mobile-card-title {
+    color:#111a3b; font-size:15px; font-weight:950; line-height:1.35;
+  }
+  .mobile-card-meta {
+    margin-top:5px; color:#6e778d; font-size:10.5px; line-height:1.5;
+  }
+  .mobile-card-meta a { color:#173fa1; text-decoration:none; font-weight:850; }
+  .mobile-card-type { margin-top:7px; }
+  .mobile-card-type .type-badge { padding:4px 8px; font-size:10px; }
+
+  .mobile-ott-grid {
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:7px; padding:9px 0 2px;
+  }
+  .mobile-ott-item {
+    min-height:42px; display:flex; align-items:center; justify-content:space-between;
+    gap:7px; padding:7px 9px; box-sizing:border-box;
+    border:1px solid #e2e7f0; border-radius:9px; background:#fafbfe;
+  }
+  .mobile-ott-name {
+    display:flex; align-items:center; gap:5px; min-width:0;
+    color:#303a54; font-size:10.5px; font-weight:850; white-space:nowrap;
+  }
+  .mobile-provider-n { color:#df0017; font-size:15px; font-weight:950; }
+  .mobile-provider-c { color:#15a7ed; font-size:14px; font-weight:950; }
+  .mobile-provider-t { color:#e80048; font-size:14px; font-weight:950; }
+  .mobile-provider-w { color:#145cff; font-size:14px; font-weight:950; }
+  .mobile-provider-d { color:#1f72bd; font-size:11px; font-weight:950; }
+  .mobile-provider-wa { color:#e71357; font-size:14px; font-weight:950; }
+  .mobile-ott-status {
+    font-size:15px; font-weight:950; line-height:1;
+  }
+  .mobile-status-o { color:var(--green); }
+  .mobile-status-x { color:var(--red); }
+  [class*="st-key-mobile_refresh_"] button,
+  [class*="st-key-mobile_delete_"] button {
+    min-height:40px !important; height:40px !important;
+    border-radius:9px !important; font-size:12px !important;
+  }
+  [class*="st-key-mobile_refresh_"] button {
+    background:#f3f6ff !important; border-color:#cdd8ee !important; color:#173b87 !important;
+  }
+  [class*="st-key-mobile_delete_"] button {
+    background:#fff6f7 !important; border-color:#eccfd4 !important; color:#a83040 !important;
+  }
+
+  /* 선택된 콘텐츠 작업 바도 모바일에서 한 줄씩 안정적으로 표시 */
+  .st-key-bulk_action_bar [data-testid="stHorizontalBlock"] {
+    flex-wrap:wrap !important; gap:7px !important;
+  }
+  .st-key-bulk_action_bar [data-testid="stColumn"]:nth-child(1) {
+    flex:0 0 100% !important; width:100% !important;
+  }
+  .st-key-bulk_action_bar [data-testid="stColumn"]:nth-child(2),
+  .st-key-bulk_action_bar [data-testid="stColumn"]:nth-child(3) {
+    flex:1 1 calc(50% - 4px) !important; width:calc(50% - 4px) !important;
+  }
+
+  /* 페이지 이동 */
+  .pagination-info { font-size:11px !important; }
+  .st-key-page_prev button, .st-key-page_next button { min-height:40px !important; }
+
+  /* 팝업은 화면 폭 안에 맞춘다. */
+  div[data-testid="stDialog"] div[role="dialog"] {
+    width:calc(100vw - 20px) !important;
+    max-width:calc(100vw - 20px) !important;
+    max-height:88vh !important;
+    margin:10px !important;
+    border-radius:15px !important;
+  }
 }
 </style>
 """,
@@ -2546,6 +2785,39 @@ def ox_badge(value: Any) -> str:
 BULK_SELECTION_PREFIX = "bulk_row_select_"
 
 
+def sync_mobile_selection(row_id: str) -> None:
+    """모바일 카드 체크박스 상태를 PC/저장용 공통 선택 상태에 반영한다."""
+    row_id = clean_text(row_id)
+    if not row_id:
+        return
+    mobile_key = f"{MOBILE_SELECTION_PREFIX}{row_id}"
+    canonical_key = f"{BULK_SELECTION_PREFIX}{row_id}"
+    st.session_state[canonical_key] = bool(st.session_state.get(mobile_key, False))
+
+
+def mobile_ott_grid_html(row: pd.Series) -> str:
+    providers = [
+        ("넷플릭스", "N", "netflix", "mobile-provider-n"),
+        ("쿠팡플레이", "▶", "coupang", "mobile-provider-c"),
+        ("티빙", "T", "tving", "mobile-provider-t"),
+        ("웨이브", "W", "wavve", "mobile-provider-w"),
+        ("디즈니+", "D+", "disney", "mobile-provider-d"),
+        ("왓챠", "W", "watcha", "mobile-provider-wa"),
+    ]
+    cells: list[str] = []
+    for label, logo, column, logo_class in providers:
+        enabled = as_bool(row.get(column, False))
+        status_class = "mobile-status-o" if enabled else "mobile-status-x"
+        status = "O" if enabled else "X"
+        cells.append(
+            '<div class="mobile-ott-item">'
+            f'<div class="mobile-ott-name"><span class="{logo_class}">{html.escape(logo)}</span>{html.escape(label)}</div>'
+            f'<div class="mobile-ott-status {status_class}">{status}</div>'
+            '</div>'
+        )
+    return '<div class="mobile-ott-grid">' + ''.join(cells) + '</div>'
+
+
 def selected_content_ids(full_df: pd.DataFrame) -> list[str]:
     """현재 세션에서 선택된 유효 콘텐츠 ID를 반환한다."""
     valid_ids = set(full_df["id"].astype(str).tolist()) if not full_df.empty else set()
@@ -2564,9 +2836,12 @@ def selected_content_ids(full_df: pd.DataFrame) -> list[str]:
 def clear_bulk_selection(row_ids: list[str] | None = None) -> None:
     targets = set(row_ids or [])
     for key in list(st.session_state.keys()):
-        if not key.startswith(BULK_SELECTION_PREFIX):
+        if key.startswith(BULK_SELECTION_PREFIX):
+            row_id = key[len(BULK_SELECTION_PREFIX) :]
+        elif key.startswith(MOBILE_SELECTION_PREFIX):
+            row_id = key[len(MOBILE_SELECTION_PREFIX) :]
+        else:
             continue
-        row_id = key[len(BULK_SELECTION_PREFIX) :]
         if not targets or row_id in targets:
             st.session_state.pop(key, None)
 
@@ -2817,6 +3092,114 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     else:
                         st.markdown('<div class="native-cell">-</div>', unsafe_allow_html=True)
 
+    # 모바일 전용 카드 목록. PC에서는 CSS로 숨기고 800px 이하에서만 표시한다.
+    with st.container(key="mobile_cards_shell"):
+        with st.container(key="mobile_list_toolbar"):
+            mobile_info_col, mobile_toggle_col = st.columns(
+                [1.45, 1.0], gap="small", vertical_alignment="center"
+            )
+            with mobile_info_col:
+                st.markdown(
+                    f'<div class="mobile-list-summary"><b>{total_items:,}개</b> 중 '
+                    f'{page_start + 1}~{page_start + len(page_df)} 표시</div>',
+                    unsafe_allow_html=True,
+                )
+            with mobile_toggle_col:
+                toggle_label = "현재 페이지 선택 해제" if all_page_selected else "현재 페이지 전체 선택"
+                if st.button(
+                    toggle_label,
+                    key=f"mobile_toggle_page_{current_page}_{page_selected_count}",
+                    use_container_width=True,
+                    disabled=not is_admin(),
+                ):
+                    new_value = not all_page_selected
+                    for selected_row_id in page_ids:
+                        st.session_state[f"{BULK_SELECTION_PREFIX}{selected_row_id}"] = new_value
+                        st.session_state[f"{MOBILE_SELECTION_PREFIX}{selected_row_id}"] = new_value
+                    st.rerun(scope="fragment")
+
+        for page_offset, (_, row) in enumerate(page_df.iterrows()):
+            title = clean_text(row.get("title", ""))
+            matched_title = clean_text(row.get("matched_title", ""))
+            matched_year = clean_text(row.get("matched_year", ""))
+            source_url = clean_text(row.get("source_url", ""))
+            open_year = clean_text(row.get("open_year", ""))
+            last_checked = clean_text(row.get("last_checked", ""))
+            row_id = clean_text(row.get("id", ""))
+            absolute_no = page_start + page_offset + 1
+            update_date_text = clean_text(row.get("btv_update_date", ""))
+            content_type_text = clean_text(row.get("content_type", "")) or "기타"
+
+            mobile_details: list[str] = []
+            if open_year:
+                mobile_details.append(open_year)
+            if matched_title and normalize_title(matched_title) != normalize_title(title):
+                mobile_details.append(f"매칭: {matched_title}")
+            elif matched_year and matched_year not in mobile_details:
+                mobile_details.append(matched_year)
+            if update_date_text:
+                mobile_details.append(f"B tv+ {update_date_text}")
+            if last_checked:
+                mobile_details.append(f"확인 {last_checked}")
+
+            mobile_detail_text = " · ".join(html.escape(item) for item in mobile_details)
+            if source_url:
+                mobile_source_link = (
+                    f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
+                )
+                mobile_detail_text += (" · " if mobile_detail_text else "") + mobile_source_link
+
+            canonical_key = f"{BULK_SELECTION_PREFIX}{row_id}"
+            mobile_key = f"{MOBILE_SELECTION_PREFIX}{row_id}"
+            st.session_state[mobile_key] = bool(st.session_state.get(canonical_key, False))
+
+            with st.container(border=True, key=f"mobile_content_card_{row_id}"):
+                select_col, number_col, poster_col, copy_col = st.columns(
+                    [0.17, 0.20, 0.47, 1.58], gap="small", vertical_alignment="center"
+                )
+                with select_col:
+                    st.checkbox(
+                        f"{title} 모바일 선택",
+                        key=mobile_key,
+                        label_visibility="collapsed",
+                        disabled=not is_admin(),
+                        on_change=sync_mobile_selection,
+                        args=(row_id,),
+                    )
+                with number_col:
+                    st.markdown(
+                        f'<div class="mobile-card-number">{absolute_no}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with poster_col:
+                    st.markdown(poster_html(row), unsafe_allow_html=True)
+                with copy_col:
+                    st.markdown(
+                        f'<div class="mobile-card-title">{html.escape(title)}</div>'
+                        f'<div class="mobile-card-meta">{mobile_detail_text or "-"}</div>'
+                        f'<div class="mobile-card-type">{type_badge(content_type_text)}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown(mobile_ott_grid_html(row), unsafe_allow_html=True)
+
+                if is_admin():
+                    mobile_refresh_col, mobile_delete_col = st.columns(2, gap="small")
+                    with mobile_refresh_col:
+                        if st.button(
+                            "↻ 다시 확인",
+                            key=f"mobile_refresh_{row_id}",
+                            use_container_width=True,
+                        ):
+                            render_refresh_dialog(full_df, row_id)
+                    with mobile_delete_col:
+                        if st.button(
+                            "⌫ 삭제",
+                            key=f"mobile_delete_{row_id}",
+                            use_container_width=True,
+                        ):
+                            render_delete_dialog(full_df, row_id)
+
     if total_pages > 1:
         left, prev_col, info_col, next_col, right = st.columns(
             [3.5, 0.75, 1.4, 0.75, 3.5], vertical_alignment="center"
@@ -2883,32 +3266,35 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-intro_col, guide_col, history_col, csv_col = st.columns([5.8, 1.05, 1.05, 1.2], vertical_alignment="center")
-with intro_col:
-    st.markdown(
-        """
+with st.container(key="page_intro_actions"):
+    intro_col, guide_col, history_col, csv_col = st.columns(
+        [5.8, 1.05, 1.05, 1.2], vertical_alignment="center"
+    )
+    with intro_col:
+        st.markdown(
+            """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v18 · 전체 최신화 변경 판정 수정형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v19 · PC 유지·모바일 카드 반응형</b></div>
 </div>
 """,
-        unsafe_allow_html=True,
-    )
-with guide_col:
-    if st.button("❔ 사용 가이드", use_container_width=True):
-        st.session_state.show_guide = not st.session_state.get("show_guide", False)
-with history_col:
-    if st.button("🕘 저장 기록", use_container_width=True):
-        render_history_dialog(df, history_df)
-with csv_col:
-    export_df = normalize_dataframe(df)
-    st.download_button(
-        "⇩ CSV 다운로드",
-        data=export_df.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"btv_max_ott_{date.today()}.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
+            unsafe_allow_html=True,
+        )
+    with guide_col:
+        if st.button("❔ 사용 가이드", use_container_width=True):
+            st.session_state.show_guide = not st.session_state.get("show_guide", False)
+    with history_col:
+        if st.button("🕘 저장 기록", use_container_width=True):
+            render_history_dialog(df, history_df)
+    with csv_col:
+        export_df = normalize_dataframe(df)
+        st.download_button(
+            "⇩ CSV 다운로드",
+            data=export_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"btv_max_ott_{date.today()}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 if st.session_state.get("show_guide", False):
     st.markdown(
