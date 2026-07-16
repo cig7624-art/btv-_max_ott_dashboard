@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import html
+import hmac
 import io
 import json
 import os
@@ -32,7 +33,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v22 · 모바일 체크박스·번호 정렬 수정형"
+BUILD_LABEL = "v23 · 관리자 권한·읽기 전용 분리형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -544,6 +545,56 @@ div[data-baseweb="select"] > div {
 }
 
 
+/* v22: PC 표 좌측 밀도·기준선 정리 (모바일 카드에는 영향 없음) */
+@media (min-width: 801px) {
+  /* 필터 마지막 저장 상태를 버튼들과 같은 기준선에 맞춘다. */
+  .st-key-content_filter_toolbar > div [data-testid="stHorizontalBlock"] {
+    align-items:center !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child,
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child > div,
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child [data-testid="stMarkdownContainer"] {
+    height:44px !important;
+    min-height:44px !important;
+    display:flex !important;
+    align-items:center !important;
+    margin:0 !important;
+    padding:0 !important;
+  }
+  .st-key-content_filter_toolbar .storage-pill {
+    height:44px !important;
+    min-height:44px !important;
+    margin:0 !important;
+    align-self:center !important;
+  }
+
+  /* 체크박스와 번호를 같은 수평선에 놓고 좌측 여백을 줄인다. */
+  .st-key-comparison_header [data-testid="stCheckbox"],
+  [class*="st-key-bulk_row_select_"] [data-testid="stCheckbox"] {
+    width:100% !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    margin:0 !important;
+  }
+  .st-key-comparison_header [data-testid="stCheckbox"] label,
+  [class*="st-key-bulk_row_select_"] [data-testid="stCheckbox"] label {
+    margin:0 !important;
+    padding:0 !important;
+  }
+  .selection-head, .row-number {
+    width:100%;
+    padding:0 !important;
+    margin:0 !important;
+    text-align:center;
+  }
+
+  /* 포스터·타이틀 셀의 불필요한 안쪽 여백만 줄인다. */
+  [class*="st-key-content_row_"] .poster { margin:0 !important; }
+  [class*="st-key-content_row_"] .title-main,
+  [class*="st-key-content_row_"] .title-sub { margin-left:0 !important; }
+}
+
 /* v14: 검색 결과와 등록 목록의 행 구분선을 실제 컨테이너 폭 전체에 표시 */
 [class*="st-key-candidate_row_"],
 [class*="st-key-content_row_"] {
@@ -827,45 +878,6 @@ div[data-baseweb="select"] > div {
     align-items:center !important;
     gap:7px !important;
   }
-
-  /* 모바일 카드 첫 줄: 체크박스·번호·포스터·정보를 한 줄에 고정 */
-  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) {
-    display:flex !important;
-    flex-direction:row !important;
-    flex-wrap:nowrap !important;
-    align-items:flex-start !important;
-    gap:8px !important;
-    width:100% !important;
-  }
-  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(1) {
-    flex:0 0 28px !important; width:28px !important; min-width:28px !important;
-  }
-  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(2) {
-    flex:0 0 25px !important; width:25px !important; min-width:25px !important;
-  }
-  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(3) {
-    flex:0 0 64px !important; width:64px !important; min-width:64px !important;
-  }
-  [class*="st-key-mobile_content_card_"] [data-testid="stHorizontalBlock"]:has([class*="st-key-mobile_select_"]) > [data-testid="stColumn"]:nth-child(4) {
-    flex:1 1 auto !important; width:auto !important; min-width:0 !important;
-  }
-  [class*="st-key-mobile_select_"] {
-    min-height:25px !important;
-    display:flex !important;
-    align-items:flex-start !important;
-    justify-content:center !important;
-    padding-top:1px !important;
-  }
-  [class*="st-key-mobile_select_"] [data-testid="stCheckbox"] {
-    margin:0 !important;
-    min-height:25px !important;
-  }
-  [class*="st-key-mobile_select_"] label { padding:0 !important; }
-  [class*="st-key-mobile_select_"] label > div:first-child {
-    margin:0 !important;
-  }
-  .mobile-card-number { margin-top:1px !important; }
-  [class*="st-key-mobile_content_card_"] .poster-link { display:block !important; }
   [class*="st-key-mobile_content_card_"] .poster {
     width:64px !important; height:92px !important; border-radius:9px !important;
   }
@@ -1323,7 +1335,10 @@ def save_data(
     """현재 목록을 먼저 저장하고, 변경 기록은 별도 누적 파일에 추가한다.
 
     반환값이 있으면 목록 저장은 성공했지만 기록 저장만 실패한 것이다.
+    모든 쓰기 작업은 서버 측에서도 관리자 세션을 다시 확인한다.
     """
+    if not is_admin():
+        raise PermissionError("관리자 로그인 세션이 없어 저장할 수 없습니다.")
     write_current_data(df, message)
     history_warning = ""
     if history_events:
@@ -2403,26 +2418,69 @@ def result_to_row(
 # -----------------------------------------------------------------------------
 # Admin / actions
 # -----------------------------------------------------------------------------
+def admin_password_configured() -> bool:
+    return bool(secret_value("ADMIN_PASSWORD"))
+
+
 def is_admin() -> bool:
-    password = secret_value("ADMIN_PASSWORD")
-    if not password:
-        return True
+    # 비밀번호가 설정되지 않은 경우에는 보안을 위해 읽기 전용으로 동작한다.
+    if not admin_password_configured():
+        return False
     return bool(st.session_state.get("admin_authenticated", False))
 
 
-def render_admin_login() -> None:
-    password = secret_value("ADMIN_PASSWORD")
-    if not password or is_admin():
+def require_admin(action: str = "이 작업") -> bool:
+    if is_admin():
+        return True
+    st.error(f"{action}은(는) 관리자 로그인 후 사용할 수 있습니다.")
+    return False
+
+
+@st.dialog("관리자 로그인")
+def render_admin_login_dialog() -> None:
+    if is_admin():
+        st.success("이미 관리자 권한으로 로그인되어 있습니다.")
+        if st.button("닫기", use_container_width=True, key="close_already_admin_dialog"):
+            st.rerun()
         return
-    with st.sidebar:
-        st.subheader("관리자 로그인")
-        entered = st.text_input("관리 비밀번호", type="password")
-        if st.button("로그인", use_container_width=True):
-            if entered == password:
-                st.session_state.admin_authenticated = True
+
+    if not admin_password_configured():
+        st.error("관리자 비밀번호가 아직 설정되지 않았습니다.")
+        st.caption('Streamlit 앱의 Settings → Secrets에 ADMIN_PASSWORD = "관리 비밀번호"를 추가해 주세요.')
+        if st.button("닫기", use_container_width=True, key="close_admin_setup_dialog"):
+            st.rerun()
+        return
+
+    st.caption("관리자만 콘텐츠 추가·재확인·전체 최신화·삭제를 할 수 있습니다.")
+    entered = st.text_input(
+        "관리 비밀번호",
+        type="password",
+        placeholder="관리 비밀번호를 입력하세요",
+        key="admin_password_input",
+    )
+    login_col, cancel_col = st.columns(2)
+    with login_col:
+        if st.button("로그인", type="primary", use_container_width=True, key="admin_login_submit"):
+            expected = secret_value("ADMIN_PASSWORD")
+            if entered and hmac.compare_digest(entered, expected):
+                st.session_state["admin_authenticated"] = True
+                st.session_state.pop("admin_password_input", None)
+                st.session_state["_flash_toast"] = "관리자 로그인되었습니다."
                 st.rerun()
             else:
                 st.error("비밀번호가 맞지 않습니다.")
+    with cancel_col:
+        if st.button("취소", use_container_width=True, key="admin_login_cancel"):
+            st.session_state.pop("admin_password_input", None)
+            st.rerun()
+
+
+def logout_admin() -> None:
+    st.session_state.pop("admin_authenticated", None)
+    st.session_state.pop("admin_password_input", None)
+    clear_bulk_selection()
+    clear_content_search_results()
+    st.session_state["_flash_toast"] = "관리자 로그아웃되었습니다."
 
 
 def fetch_refresh_result(target: Any) -> dict[str, Any]:
@@ -2531,6 +2589,8 @@ def handle_query_actions(df: pd.DataFrame) -> None:
 
 @st.dialog("OTT 정보 다시 확인")
 def render_refresh_dialog(df: pd.DataFrame, row_id: str) -> None:
+    if not require_admin("콘텐츠 재확인"):
+        return
     matches = df.index[df["id"].astype(str) == row_id].tolist()
     if not matches:
         st.error("재확인할 콘텐츠를 찾지 못했습니다.")
@@ -2623,6 +2683,8 @@ def render_refresh_dialog(df: pd.DataFrame, row_id: str) -> None:
 
 @st.dialog("전체 OTT 정보 일괄 업데이트")
 def render_bulk_refresh_all_dialog(df: pd.DataFrame) -> None:
+    if not require_admin("전체 최신화"):
+        return
     source_df = normalize_dataframe(df).copy()
     total = len(source_df)
     if source_df.empty:
@@ -2784,6 +2846,8 @@ def render_bulk_refresh_all_dialog(df: pd.DataFrame) -> None:
 
 @st.dialog("콘텐츠 삭제")
 def render_delete_dialog(df: pd.DataFrame, row_id: str) -> None:
+    if not require_admin("콘텐츠 삭제"):
+        return
     matches = df[df["id"].astype(str) == row_id]
     if matches.empty:
         st.error("삭제할 콘텐츠를 찾지 못했습니다.")
@@ -3040,6 +3104,8 @@ def clear_bulk_selection(row_ids: list[str] | None = None) -> None:
 
 @st.dialog("선택 콘텐츠 일괄 삭제")
 def render_bulk_delete_dialog(full_df: pd.DataFrame, row_ids: list[str]) -> None:
+    if not require_admin("일괄 삭제"):
+        return
     row_ids = [clean_text(value) for value in row_ids if clean_text(value)]
     targets = full_df[full_df["id"].astype(str).isin(row_ids)].copy()
     if targets.empty:
@@ -3092,11 +3158,20 @@ def render_bulk_delete_dialog(full_df: pd.DataFrame, row_ids: list[str]) -> None
 @st.fragment
 def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -> None:
     """필터된 목록을 표시하되 저장·삭제는 전체 데이터 기준으로 처리한다."""
-    if df.empty:
+    admin_mode = is_admin()
+
+    if not admin_mode:
         clear_bulk_selection()
+
+    if df.empty:
+        empty_note = (
+            "상단에서 타이틀을 추가하면 포스터와 OTT 편성 여부가 자동 표시됩니다."
+            if admin_mode
+            else "등록된 콘텐츠가 없습니다. 관리자 로그인 후 콘텐츠를 추가할 수 있습니다."
+        )
         st.markdown(
             '<div class="empty-box"><b>등록된 콘텐츠가 없습니다.</b><br>'
-            '<span style="font-size:12px">상단에서 타이틀을 추가하면 포스터와 OTT 편성 여부가 자동 표시됩니다.</span></div>',
+            f'<span style="font-size:12px">{html.escape(empty_note)}</span></div>',
             unsafe_allow_html=True,
         )
         return
@@ -3110,20 +3185,20 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
     page_df = df.iloc[page_start : page_start + page_size]
     page_ids = page_df["id"].astype(str).tolist()
 
-    # 선택 상태는 전체 데이터에서 유효한 ID만 유지한다.
-    selected_ids = selected_content_ids(full_df)
+    selected_ids = selected_content_ids(full_df) if admin_mode else []
     selected_set = set(selected_ids)
     page_selected_count = sum(1 for row_id in page_ids if row_id in selected_set)
     all_page_selected = bool(page_ids) and page_selected_count == len(page_ids)
 
-    if selected_ids and is_admin():
+    if selected_ids:
         with st.container(key="bulk_action_bar"):
             info_col, clear_col, delete_col = st.columns(
                 [4.5, 1.0, 1.25], gap="small", vertical_alignment="center"
             )
             with info_col:
                 st.markdown(
-                    f'<div class="bulk-selected-text">✓ 선택된 콘텐츠 <b style="margin-left:5px">{len(selected_ids)}개</b></div>',
+                    f'<div class="bulk-selected-text">✓ 선택된 콘텐츠 '
+                    f'<b style="margin-left:5px">{len(selected_ids)}개</b></div>',
                     unsafe_allow_html=True,
                 )
             with clear_col:
@@ -3138,58 +3213,78 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                 ):
                     render_bulk_delete_dialog(full_df, selected_ids)
 
-    # 선택/번호 열을 추가하고 기존 열 비율은 최대한 유지한다.
-    widths = [0.72, 3.35, 1.25, 0.98, 0.88, 0.92, 0.76, 0.86, 1.06, 0.74, 0.96]
-
     mobile_mode = is_mobile_client()
+    provider_columns = ["netflix", "coupang", "tving", "wavve", "disney", "watcha"]
+    provider_headers = [
+        '<div class="native-head"><span class="provider-n">N</span>넷플릭스</div>',
+        '<div class="native-head"><span class="provider-c">▶</span>쿠팡플레이</div>',
+        '<div class="native-head"><span class="provider-t">T</span>티빙</div>',
+        '<div class="native-head"><span class="provider-w">W</span>웨이브</div>',
+        '<div class="native-head"><span class="provider-d">Disney</span> 디즈니+</div>',
+        '<div class="native-head"><span class="provider-wa">W</span>왓챠</div>',
+    ]
 
     if not mobile_mode:
+        admin_widths = [0.58, 2.95, 1.20, 0.94, 0.86, 0.90, 0.74, 0.84, 1.04, 0.72, 0.92]
+        viewer_widths = [0.36, 3.17, 1.20, 0.94, 0.86, 0.90, 0.74, 0.84, 1.04, 0.72]
+        widths = admin_widths if admin_mode else viewer_widths
+
         with st.container(key="comparison_table_shell"):
             with st.container(key="comparison_header"):
                 header = st.columns(widths, gap="small", vertical_alignment="center")
 
-                with header[0]:
-                    select_hash = abs(hash("|".join(page_ids))) % 1_000_000
-                    select_key = (
-                        f"bulk_select_all_{current_page}_{select_hash}_{page_selected_count}"
-                    )
-                    select_col, no_col = st.columns([0.8, 1.0], gap="small", vertical_alignment="center")
-                    with select_col:
-                        page_toggle = st.checkbox(
-                            "현재 페이지 전체 선택",
-                            value=all_page_selected,
-                            key=select_key,
-                            label_visibility="collapsed",
-                            disabled=not is_admin(),
+                if admin_mode:
+                    with header[0]:
+                        select_hash = abs(hash("|".join(page_ids))) % 1_000_000
+                        select_key = (
+                            f"bulk_select_all_{current_page}_{select_hash}_{page_selected_count}"
                         )
-                    with no_col:
+                        select_col, no_col = st.columns(
+                            [0.68, 0.82], gap=None, vertical_alignment="center"
+                        )
+                        with select_col:
+                            page_toggle = st.checkbox(
+                                "현재 페이지 전체 선택",
+                                value=all_page_selected,
+                                key=select_key,
+                                label_visibility="collapsed",
+                            )
+                        with no_col:
+                            st.markdown(
+                                '<div class="selection-head">No.</div>',
+                                unsafe_allow_html=True,
+                            )
+                        if page_toggle != all_page_selected:
+                            for row_id in page_ids:
+                                st.session_state[f"{BULK_SELECTION_PREFIX}{row_id}"] = page_toggle
+                            st.rerun(scope="fragment")
+
+                    header_labels = [
+                        '<div class="native-head left">포스터 · 타이틀명</div>',
+                        '<div class="native-head">B tv+ 업데이트일</div>',
+                        '<div class="native-head">콘텐츠 구분</div>',
+                        *provider_headers,
+                        '<div class="native-head">관리</div>',
+                    ]
+                    header_targets = header[1:]
+                else:
+                    with header[0]:
                         st.markdown('<div class="selection-head">No.</div>', unsafe_allow_html=True)
+                    header_labels = [
+                        '<div class="native-head left">포스터 · 타이틀명</div>',
+                        '<div class="native-head">B tv+ 업데이트일</div>',
+                        '<div class="native-head">콘텐츠 구분</div>',
+                        *provider_headers,
+                    ]
+                    header_targets = header[1:]
 
-                    if is_admin() and page_toggle != all_page_selected:
-                        for row_id in page_ids:
-                            st.session_state[f"{BULK_SELECTION_PREFIX}{row_id}"] = page_toggle
-                        st.rerun(scope="fragment")
-
-                header_labels = [
-                    '<div class="native-head left">포스터 · 타이틀명</div>',
-                    '<div class="native-head">B tv+ 업데이트일</div>',
-                    '<div class="native-head">콘텐츠 구분</div>',
-                    '<div class="native-head"><span class="provider-n">N</span>넷플릭스</div>',
-                    '<div class="native-head"><span class="provider-c">▶</span>쿠팡플레이</div>',
-                    '<div class="native-head"><span class="provider-t">T</span>티빙</div>',
-                    '<div class="native-head"><span class="provider-w">W</span>웨이브</div>',
-                    '<div class="native-head"><span class="provider-d">Disney</span> 디즈니+</div>',
-                    '<div class="native-head"><span class="provider-wa">W</span>왓챠</div>',
-                    '<div class="native-head">관리</div>',
-                ]
-                for column, label in zip(header[1:], header_labels):
+                for column, label in zip(header_targets, header_labels):
                     with column:
                         st.markdown(label, unsafe_allow_html=True)
 
             for page_offset, (_, row) in enumerate(page_df.iterrows()):
                 title = clean_text(row.get("title", ""))
                 matched_title = clean_text(row.get("matched_title", ""))
-                matched_year = clean_text(row.get("matched_year", ""))
                 source_url = clean_text(row.get("source_url", ""))
                 open_year = clean_text(row.get("open_year", ""))
                 last_checked = clean_text(row.get("last_checked", ""))
@@ -3203,24 +3298,29 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     details.append(f"매칭: {matched_title}")
                 if last_checked:
                     details.append(f"확인 {last_checked}")
-
                 detail_text = " · ".join(html.escape(item) for item in details)
 
                 with st.container(key=f"content_row_{row_id}"):
                     columns = st.columns(widths, gap="small", vertical_alignment="center")
 
-                    with columns[0]:
-                        checkbox_col, number_col = st.columns(
-                            [0.8, 1.0], gap="small", vertical_alignment="center"
-                        )
-                        with checkbox_col:
-                            st.checkbox(
-                                f"{title} 선택",
-                                key=f"{BULK_SELECTION_PREFIX}{row_id}",
-                                label_visibility="collapsed",
-                                disabled=not is_admin(),
+                    if admin_mode:
+                        with columns[0]:
+                            checkbox_col, number_col = st.columns(
+                                [0.68, 0.82], gap=None, vertical_alignment="center"
                             )
-                        with number_col:
+                            with checkbox_col:
+                                st.checkbox(
+                                    f"{title} 선택",
+                                    key=f"{BULK_SELECTION_PREFIX}{row_id}",
+                                    label_visibility="collapsed",
+                                )
+                            with number_col:
+                                st.markdown(
+                                    f'<div class="row-number">{absolute_no}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                    else:
+                        with columns[0]:
                             st.markdown(
                                 f'<div class="row-number">{absolute_no}</div>',
                                 unsafe_allow_html=True,
@@ -3241,25 +3341,27 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
 
                     with columns[2]:
                         st.markdown(
-                            f'<div class="native-cell">{html.escape(clean_text(row.get("btv_update_date", "")))}</div>',
+                            f'<div class="native-cell">'
+                            f'{html.escape(clean_text(row.get("btv_update_date", "")))}</div>',
                             unsafe_allow_html=True,
                         )
                     with columns[3]:
                         st.markdown(
-                            f'<div class="native-cell">{type_badge(clean_text(row.get("content_type", "")))}</div>',
+                            f'<div class="native-cell">'
+                            f'{type_badge(clean_text(row.get("content_type", "")))}</div>',
                             unsafe_allow_html=True,
                         )
 
-                    provider_columns = ["netflix", "coupang", "tving", "wavve", "disney", "watcha"]
                     for column, provider_column in zip(columns[4:10], provider_columns):
                         with column:
                             st.markdown(
-                                f'<div class="native-cell native-ox">{ox_badge(row.get(provider_column))}</div>',
+                                f'<div class="native-cell native-ox">'
+                                f'{ox_badge(row.get(provider_column))}</div>',
                                 unsafe_allow_html=True,
                             )
 
-                    with columns[10]:
-                        if is_admin():
+                    if admin_mode:
+                        with columns[10]:
                             refresh_col, delete_col = st.columns(2, gap="small")
                             with refresh_col:
                                 if st.button(
@@ -3277,39 +3379,50 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                                     use_container_width=True,
                                 ):
                                     render_delete_dialog(full_df, row_id)
-                        else:
-                            st.markdown('<div class="native-cell">-</div>', unsafe_allow_html=True)
 
     else:
         with st.container(key="mobile_cards_shell"):
             with st.container(key="mobile_list_toolbar"):
-                mobile_info_col, mobile_toggle_col = st.columns(
-                    [1.45, 1.0], gap="small", vertical_alignment="center"
-                )
-                with mobile_info_col:
+                if admin_mode:
+                    mobile_info_col, mobile_toggle_col = st.columns(
+                        [1.45, 1.0], gap="small", vertical_alignment="center"
+                    )
+                    with mobile_info_col:
+                        st.markdown(
+                            f'<div class="mobile-list-summary"><b>{total_items:,}개</b> 중 '
+                            f'{page_start + 1}~{page_start + len(page_df)} 표시</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with mobile_toggle_col:
+                        toggle_label = (
+                            "현재 페이지 선택 해제"
+                            if all_page_selected
+                            else "현재 페이지 전체 선택"
+                        )
+                        if st.button(
+                            toggle_label,
+                            key=f"mobile_toggle_page_{current_page}_{page_selected_count}",
+                            use_container_width=True,
+                        ):
+                            new_value = not all_page_selected
+                            for selected_row_id in page_ids:
+                                st.session_state[
+                                    f"{BULK_SELECTION_PREFIX}{selected_row_id}"
+                                ] = new_value
+                                st.session_state[
+                                    f"{MOBILE_SELECTION_PREFIX}{selected_row_id}"
+                                ] = new_value
+                            st.rerun(scope="fragment")
+                else:
                     st.markdown(
                         f'<div class="mobile-list-summary"><b>{total_items:,}개</b> 중 '
-                        f'{page_start + 1}~{page_start + len(page_df)} 표시</div>',
+                        f'{page_start + 1}~{page_start + len(page_df)} 표시 · 읽기 전용</div>',
                         unsafe_allow_html=True,
                     )
-                with mobile_toggle_col:
-                    toggle_label = "현재 페이지 선택 해제" if all_page_selected else "현재 페이지 전체 선택"
-                    if st.button(
-                        toggle_label,
-                        key=f"mobile_toggle_page_{current_page}_{page_selected_count}",
-                        use_container_width=True,
-                        disabled=not is_admin(),
-                    ):
-                        new_value = not all_page_selected
-                        for selected_row_id in page_ids:
-                            st.session_state[f"{BULK_SELECTION_PREFIX}{selected_row_id}"] = new_value
-                            st.session_state[f"{MOBILE_SELECTION_PREFIX}{selected_row_id}"] = new_value
-                        st.rerun(scope="fragment")
 
             for page_offset, (_, row) in enumerate(page_df.iterrows()):
                 title = clean_text(row.get("title", ""))
                 matched_title = clean_text(row.get("matched_title", ""))
-                matched_year = clean_text(row.get("matched_year", ""))
                 source_url = clean_text(row.get("source_url", ""))
                 open_year = clean_text(row.get("open_year", ""))
                 last_checked = clean_text(row.get("last_checked", ""))
@@ -3327,26 +3440,35 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     mobile_details.append(f"B tv+ {update_date_text}")
                 if last_checked:
                     mobile_details.append(f"확인 {last_checked}")
-
                 mobile_detail_text = " · ".join(html.escape(item) for item in mobile_details)
 
-                canonical_key = f"{BULK_SELECTION_PREFIX}{row_id}"
-                mobile_key = f"{MOBILE_SELECTION_PREFIX}{row_id}"
-                st.session_state[mobile_key] = bool(st.session_state.get(canonical_key, False))
-
                 with st.container(border=True, key=f"mobile_content_card_{row_id}"):
-                    select_col, number_col, poster_col, copy_col = st.columns(
-                        [0.17, 0.20, 0.47, 1.58], gap="small", vertical_alignment="center"
-                    )
-                    with select_col:
-                        st.checkbox(
-                            f"{title} 모바일 선택",
-                            key=mobile_key,
-                            label_visibility="collapsed",
-                            disabled=not is_admin(),
-                            on_change=sync_mobile_selection,
-                            args=(row_id,),
+                    if admin_mode:
+                        canonical_key = f"{BULK_SELECTION_PREFIX}{row_id}"
+                        mobile_key = f"{MOBILE_SELECTION_PREFIX}{row_id}"
+                        st.session_state[mobile_key] = bool(
+                            st.session_state.get(canonical_key, False)
                         )
+                        select_col, number_col, poster_col, copy_col = st.columns(
+                            [0.17, 0.20, 0.47, 1.58],
+                            gap="small",
+                            vertical_alignment="center",
+                        )
+                        with select_col:
+                            st.checkbox(
+                                f"{title} 모바일 선택",
+                                key=mobile_key,
+                                label_visibility="collapsed",
+                                on_change=sync_mobile_selection,
+                                args=(row_id,),
+                            )
+                    else:
+                        number_col, poster_col, copy_col = st.columns(
+                            [0.20, 0.50, 1.72],
+                            gap="small",
+                            vertical_alignment="center",
+                        )
+
                     with number_col:
                         st.markdown(
                             f'<div class="mobile-card-number">{absolute_no}</div>',
@@ -3358,13 +3480,14 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                         st.markdown(
                             linked_title_html(title, source_url, "mobile-card-title")
                             + f'<div class="mobile-card-meta">{mobile_detail_text or "-"}</div>'
-                            + f'<div class="mobile-card-type">{type_badge(content_type_text)}</div>',
+                            + f'<div class="mobile-card-type">'
+                            f'{type_badge(content_type_text)}</div>',
                             unsafe_allow_html=True,
                         )
 
                     st.markdown(mobile_ott_grid_html(row), unsafe_allow_html=True)
 
-                    if is_admin():
+                    if admin_mode:
                         mobile_refresh_col, mobile_delete_col = st.columns(2, gap="small")
                         with mobile_refresh_col:
                             if st.button(
@@ -3396,7 +3519,8 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                 st.rerun(scope="fragment")
         with info_col:
             st.markdown(
-                f'<div class="pagination-info">{current_page} / {total_pages} 페이지 · 총 {total_items:,}개</div>',
+                f'<div class="pagination-info">{current_page} / {total_pages} 페이지 · '
+                f'총 {total_items:,}개</div>',
                 unsafe_allow_html=True,
             )
         with next_col:
@@ -3409,11 +3533,9 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                 st.session_state["content_page"] = current_page + 1
                 st.rerun(scope="fragment")
 
-
 # -----------------------------------------------------------------------------
 # App
 # -----------------------------------------------------------------------------
-render_admin_login()
 df = load_data()
 history_df = load_history()
 
@@ -3448,8 +3570,8 @@ st.markdown(
 )
 
 with st.container(key="page_intro_actions"):
-    intro_col, guide_col, history_col, csv_col = st.columns(
-        [5.8, 1.05, 1.05, 1.2], vertical_alignment="center"
+    intro_col, guide_col, history_col, csv_col, admin_col = st.columns(
+        [5.0, 0.95, 0.95, 1.08, 1.22], vertical_alignment="center"
     )
     with intro_col:
         st.markdown(
@@ -3476,6 +3598,18 @@ with st.container(key="page_intro_actions"):
             mime="text/csv",
             use_container_width=True,
         )
+    with admin_col:
+        if is_admin():
+            st.button(
+                "🔓 관리자 로그아웃",
+                use_container_width=True,
+                key="admin_logout_top",
+                on_click=logout_admin,
+            )
+        else:
+            login_label = "🔒 관리자 로그인" if admin_password_configured() else "⚠ 관리자 설정"
+            if st.button(login_label, use_container_width=True, key="admin_login_top"):
+                render_admin_login_dialog()
 
 if st.session_state.get("show_guide", False):
     st.markdown(
@@ -3670,11 +3804,20 @@ for month_key in ("start_month_filter", "end_month_filter"):
         st.session_state[month_key] = "전체"
 
 with st.container(border=True, key="content_filter_toolbar"):
-    search_col, type_col, start_col, tilde_col, end_col, reset_col, refresh_col, storage_col = st.columns(
-        [2.28, 0.78, 0.94, 0.12, 0.94, 0.74, 1.02, 1.04],
-        gap="small",
-        vertical_alignment="center",
-    )
+    if is_admin():
+        search_col, type_col, start_col, tilde_col, end_col, reset_col, refresh_col, storage_col = st.columns(
+            [2.28, 0.78, 0.94, 0.12, 0.94, 0.74, 1.02, 1.04],
+            gap="small",
+            vertical_alignment="center",
+        )
+    else:
+        search_col, type_col, start_col, tilde_col, end_col, reset_col, storage_col = st.columns(
+            [2.58, 0.82, 0.98, 0.12, 0.98, 0.78, 1.16],
+            gap="small",
+            vertical_alignment="center",
+        )
+        refresh_col = None
+
     with search_col:
         search_text = st.text_input(
             "타이틀 검색",
@@ -3714,15 +3857,16 @@ with st.container(border=True, key="content_filter_toolbar"):
             use_container_width=True,
             on_click=reset_content_filters,
         )
-    with refresh_col:
-        if st.button(
-            "⟳ 전체 최신화",
-            key="bulk_refresh_all",
-            use_container_width=True,
-            disabled=df.empty or not is_admin(),
-            help="등록된 모든 콘텐츠의 키노라이츠 OTT 편성정보를 현재 시점 기준으로 다시 확인합니다.",
-        ):
-            render_bulk_refresh_all_dialog(df)
+    if refresh_col is not None:
+        with refresh_col:
+            if st.button(
+                "⟳ 전체 최신화",
+                key="bulk_refresh_all",
+                use_container_width=True,
+                disabled=df.empty,
+                help="등록된 모든 콘텐츠의 키노라이츠 OTT 편성정보를 현재 시점 기준으로 다시 확인합니다.",
+            ):
+                render_bulk_refresh_all_dialog(df)
     with storage_col:
         if github_config():
             st.markdown(
