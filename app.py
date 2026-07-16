@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v17 · 정액제 건수 검증형"
+BUILD_LABEL = "v18 · 전체 최신화 변경 판정 수정형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -2273,8 +2273,15 @@ def render_bulk_refresh_all_dialog(df: pd.DataFrame) -> None:
                     if not result.get("ok"):
                         failed_titles.append(title)
                     else:
-                        new_providers = set(result.get("providers", []) or [])
-                        # 기존에 O가 있었는데 새 결과가 모두 X이면 크롤러 이상 가능성이 있어 보호한다.
+                        # 대시보드가 실제로 표시·관리하는 6개 OTT만 변경 판정에 사용한다.
+                        # 키노라이츠가 반환하는 라프텔·씨네폭스 등 기타 제공처가 섞이면
+                        # 화면 O/X는 그대로여도 매번 "편성 변경"으로 오판할 수 있다.
+                        all_new_providers = set(result.get("providers", []) or [])
+                        new_providers = {
+                            provider for provider in all_new_providers if provider in OTT_COLUMNS
+                        }
+                        # 기존에 O가 있었는데 추적 대상 6개 OTT가 모두 X이면
+                        # 크롤러 이상 가능성이 있어 보호한다.
                         if current_providers and not new_providers:
                             protected_titles.append(title)
                         else:
@@ -2882,7 +2889,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v17 · 정액제 건수 검증형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v18 · 전체 최신화 변경 판정 수정형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
