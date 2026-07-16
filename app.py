@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v19 · PC 유지·모바일 카드 반응형"
+BUILD_LABEL = "v20.1 · 모바일 선택 오류 수정형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -655,11 +655,11 @@ div[data-baseweb="select"] > div {
 
 /* 관리 버튼은 링크가 아니라 Streamlit 기본 버튼이라 URL 이동이 발생하지 않는다. */
 
-/* 모바일 전용 목록은 PC에서 렌더링만 하고 보이지 않게 한다. */
+/* 모바일 목록은 모바일 요청에서만 서버가 렌더링한다. */
 .st-key-mobile_cards_shell,
-.st-key-mobile_list_toolbar { display:none; }
+.st-key-mobile_list_toolbar { display:block; }
 
-@media (max-width:800px) {
+@media (max-width:800px), (max-device-width:800px), (pointer:coarse) and (max-width:1200px) {
   html, body, [data-testid="stAppViewContainer"], .stApp {
     overflow-x:hidden !important;
   }
@@ -790,8 +790,7 @@ div[data-baseweb="select"] > div {
   }
   .filter-tilde { min-height:43px !important; height:43px !important; }
 
-  /* PC 표는 모바일에서만 숨기고, 카드 목록을 표시 */
-  .st-key-comparison_table_shell { display:none !important; }
+  /* 모바일 요청은 카드 목록만 렌더링한다. */
   .st-key-mobile_cards_shell { display:block !important; margin-top:12px; }
   .st-key-mobile_list_toolbar { display:block !important; margin-bottom:8px; }
   .st-key-mobile_list_toolbar > div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -911,6 +910,35 @@ div[data-baseweb="select"] > div {
 # -----------------------------------------------------------------------------
 # General helpers
 # -----------------------------------------------------------------------------
+def is_mobile_client() -> bool:
+    """Detect a phone request from Streamlit's request headers.
+
+    The PC table and mobile cards are rendered exclusively rather than relying
+    on CSS to hide one of two duplicated layouts. This prevents Streamlit's
+    columns from being squeezed into a long vertical table on mobile browsers.
+    """
+    try:
+        headers = st.context.headers
+        user_agent = str(
+            headers.get("User-Agent")
+            or headers.get("user-agent")
+            or ""
+        ).strip().lower()
+    except Exception:
+        user_agent = ""
+
+    mobile_tokens = (
+        "android",
+        "iphone",
+        "ipod",
+        "mobile",
+        "windows phone",
+        "opera mini",
+        "iemobile",
+    )
+    return any(token in user_agent for token in mobile_tokens)
+
+
 def clean_text(value: Any) -> str:
     if value is None:
         return ""
@@ -2783,6 +2811,7 @@ def ox_badge(value: Any) -> str:
 
 
 BULK_SELECTION_PREFIX = "bulk_row_select_"
+MOBILE_SELECTION_PREFIX = "mobile_bulk_row_select_"
 
 
 def sync_mobile_selection(row_id: str) -> None:
@@ -2949,256 +2978,259 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
     # 선택/번호 열을 추가하고 기존 열 비율은 최대한 유지한다.
     widths = [0.72, 3.35, 1.25, 0.98, 0.88, 0.92, 0.76, 0.86, 1.06, 0.74, 0.96]
 
-    with st.container(key="comparison_table_shell"):
-        with st.container(key="comparison_header"):
-            header = st.columns(widths, gap="small", vertical_alignment="center")
+    mobile_mode = is_mobile_client()
 
-            with header[0]:
-                select_hash = abs(hash("|".join(page_ids))) % 1_000_000
-                select_key = (
-                    f"bulk_select_all_{current_page}_{select_hash}_{page_selected_count}"
-                )
-                select_col, no_col = st.columns([0.8, 1.0], gap="small", vertical_alignment="center")
-                with select_col:
-                    page_toggle = st.checkbox(
-                        "현재 페이지 전체 선택",
-                        value=all_page_selected,
-                        key=select_key,
-                        label_visibility="collapsed",
-                        disabled=not is_admin(),
+    if not mobile_mode:
+        with st.container(key="comparison_table_shell"):
+            with st.container(key="comparison_header"):
+                header = st.columns(widths, gap="small", vertical_alignment="center")
+
+                with header[0]:
+                    select_hash = abs(hash("|".join(page_ids))) % 1_000_000
+                    select_key = (
+                        f"bulk_select_all_{current_page}_{select_hash}_{page_selected_count}"
                     )
-                with no_col:
-                    st.markdown('<div class="selection-head">No.</div>', unsafe_allow_html=True)
-
-                if is_admin() and page_toggle != all_page_selected:
-                    for row_id in page_ids:
-                        st.session_state[f"{BULK_SELECTION_PREFIX}{row_id}"] = page_toggle
-                    st.rerun(scope="fragment")
-
-            header_labels = [
-                '<div class="native-head left">포스터 · 타이틀명</div>',
-                '<div class="native-head">B tv+ 업데이트일</div>',
-                '<div class="native-head">콘텐츠 구분</div>',
-                '<div class="native-head"><span class="provider-n">N</span>넷플릭스</div>',
-                '<div class="native-head"><span class="provider-c">▶</span>쿠팡플레이</div>',
-                '<div class="native-head"><span class="provider-t">T</span>티빙</div>',
-                '<div class="native-head"><span class="provider-w">W</span>웨이브</div>',
-                '<div class="native-head"><span class="provider-d">Disney</span> 디즈니+</div>',
-                '<div class="native-head"><span class="provider-wa">W</span>왓챠</div>',
-                '<div class="native-head">관리</div>',
-            ]
-            for column, label in zip(header[1:], header_labels):
-                with column:
-                    st.markdown(label, unsafe_allow_html=True)
-
-        for page_offset, (_, row) in enumerate(page_df.iterrows()):
-            title = clean_text(row.get("title", ""))
-            matched_title = clean_text(row.get("matched_title", ""))
-            matched_year = clean_text(row.get("matched_year", ""))
-            source_url = clean_text(row.get("source_url", ""))
-            open_year = clean_text(row.get("open_year", ""))
-            last_checked = clean_text(row.get("last_checked", ""))
-            row_id = clean_text(row.get("id", ""))
-            absolute_no = page_start + page_offset + 1
-
-            details: list[str] = []
-            if open_year:
-                details.append(open_year)
-            if matched_title and normalize_title(matched_title) != normalize_title(title):
-                details.append(f"매칭: {matched_title}")
-            elif matched_year and matched_year not in details:
-                details.append(matched_year)
-            if last_checked:
-                details.append(f"확인 {last_checked}")
-
-            detail_text = " · ".join(html.escape(item) for item in details)
-            if source_url:
-                source_link = (
-                    f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
-                )
-                detail_text += (" · " if detail_text else "") + source_link
-
-            with st.container(key=f"content_row_{row_id}"):
-                columns = st.columns(widths, gap="small", vertical_alignment="center")
-
-                with columns[0]:
-                    checkbox_col, number_col = st.columns(
-                        [0.8, 1.0], gap="small", vertical_alignment="center"
-                    )
-                    with checkbox_col:
-                        st.checkbox(
-                            f"{title} 선택",
-                            key=f"{BULK_SELECTION_PREFIX}{row_id}",
+                    select_col, no_col = st.columns([0.8, 1.0], gap="small", vertical_alignment="center")
+                    with select_col:
+                        page_toggle = st.checkbox(
+                            "현재 페이지 전체 선택",
+                            value=all_page_selected,
+                            key=select_key,
                             label_visibility="collapsed",
                             disabled=not is_admin(),
                         )
-                    with number_col:
+                    with no_col:
+                        st.markdown('<div class="selection-head">No.</div>', unsafe_allow_html=True)
+
+                    if is_admin() and page_toggle != all_page_selected:
+                        for row_id in page_ids:
+                            st.session_state[f"{BULK_SELECTION_PREFIX}{row_id}"] = page_toggle
+                        st.rerun(scope="fragment")
+
+                header_labels = [
+                    '<div class="native-head left">포스터 · 타이틀명</div>',
+                    '<div class="native-head">B tv+ 업데이트일</div>',
+                    '<div class="native-head">콘텐츠 구분</div>',
+                    '<div class="native-head"><span class="provider-n">N</span>넷플릭스</div>',
+                    '<div class="native-head"><span class="provider-c">▶</span>쿠팡플레이</div>',
+                    '<div class="native-head"><span class="provider-t">T</span>티빙</div>',
+                    '<div class="native-head"><span class="provider-w">W</span>웨이브</div>',
+                    '<div class="native-head"><span class="provider-d">Disney</span> 디즈니+</div>',
+                    '<div class="native-head"><span class="provider-wa">W</span>왓챠</div>',
+                    '<div class="native-head">관리</div>',
+                ]
+                for column, label in zip(header[1:], header_labels):
+                    with column:
+                        st.markdown(label, unsafe_allow_html=True)
+
+            for page_offset, (_, row) in enumerate(page_df.iterrows()):
+                title = clean_text(row.get("title", ""))
+                matched_title = clean_text(row.get("matched_title", ""))
+                matched_year = clean_text(row.get("matched_year", ""))
+                source_url = clean_text(row.get("source_url", ""))
+                open_year = clean_text(row.get("open_year", ""))
+                last_checked = clean_text(row.get("last_checked", ""))
+                row_id = clean_text(row.get("id", ""))
+                absolute_no = page_start + page_offset + 1
+
+                details: list[str] = []
+                if open_year:
+                    details.append(open_year)
+                if matched_title and normalize_title(matched_title) != normalize_title(title):
+                    details.append(f"매칭: {matched_title}")
+                elif matched_year and matched_year not in details:
+                    details.append(matched_year)
+                if last_checked:
+                    details.append(f"확인 {last_checked}")
+
+                detail_text = " · ".join(html.escape(item) for item in details)
+                if source_url:
+                    source_link = (
+                        f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
+                    )
+                    detail_text += (" · " if detail_text else "") + source_link
+
+                with st.container(key=f"content_row_{row_id}"):
+                    columns = st.columns(widths, gap="small", vertical_alignment="center")
+
+                    with columns[0]:
+                        checkbox_col, number_col = st.columns(
+                            [0.8, 1.0], gap="small", vertical_alignment="center"
+                        )
+                        with checkbox_col:
+                            st.checkbox(
+                                f"{title} 선택",
+                                key=f"{BULK_SELECTION_PREFIX}{row_id}",
+                                label_visibility="collapsed",
+                                disabled=not is_admin(),
+                            )
+                        with number_col:
+                            st.markdown(
+                                f'<div class="row-number">{absolute_no}</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                    with columns[1]:
+                        poster_col, copy_col = st.columns(
+                            [0.34, 1.0], gap="small", vertical_alignment="center"
+                        )
+                        with poster_col:
+                            st.markdown(poster_html(row), unsafe_allow_html=True)
+                        with copy_col:
+                            st.markdown(
+                                f'<div class="title-main">{html.escape(title)}</div>'
+                                f'<div class="title-sub">{detail_text or "-"}</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                    with columns[2]:
                         st.markdown(
-                            f'<div class="row-number">{absolute_no}</div>',
+                            f'<div class="native-cell">{html.escape(clean_text(row.get("btv_update_date", "")))}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with columns[3]:
+                        st.markdown(
+                            f'<div class="native-cell">{type_badge(clean_text(row.get("content_type", "")))}</div>',
                             unsafe_allow_html=True,
                         )
 
-                with columns[1]:
-                    poster_col, copy_col = st.columns(
-                        [0.34, 1.0], gap="small", vertical_alignment="center"
+                    provider_columns = ["netflix", "coupang", "tving", "wavve", "disney", "watcha"]
+                    for column, provider_column in zip(columns[4:10], provider_columns):
+                        with column:
+                            st.markdown(
+                                f'<div class="native-cell native-ox">{ox_badge(row.get(provider_column))}</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                    with columns[10]:
+                        if is_admin():
+                            refresh_col, delete_col = st.columns(2, gap="small")
+                            with refresh_col:
+                                if st.button(
+                                    "↻",
+                                    key=f"native_refresh_{row_id}",
+                                    help=f"{title} 다시 확인",
+                                    use_container_width=True,
+                                ):
+                                    render_refresh_dialog(full_df, row_id)
+                            with delete_col:
+                                if st.button(
+                                    "⌫",
+                                    key=f"native_delete_{row_id}",
+                                    help=f"{title} 삭제",
+                                    use_container_width=True,
+                                ):
+                                    render_delete_dialog(full_df, row_id)
+                        else:
+                            st.markdown('<div class="native-cell">-</div>', unsafe_allow_html=True)
+
+    else:
+        with st.container(key="mobile_cards_shell"):
+            with st.container(key="mobile_list_toolbar"):
+                mobile_info_col, mobile_toggle_col = st.columns(
+                    [1.45, 1.0], gap="small", vertical_alignment="center"
+                )
+                with mobile_info_col:
+                    st.markdown(
+                        f'<div class="mobile-list-summary"><b>{total_items:,}개</b> 중 '
+                        f'{page_start + 1}~{page_start + len(page_df)} 표시</div>',
+                        unsafe_allow_html=True,
                     )
+                with mobile_toggle_col:
+                    toggle_label = "현재 페이지 선택 해제" if all_page_selected else "현재 페이지 전체 선택"
+                    if st.button(
+                        toggle_label,
+                        key=f"mobile_toggle_page_{current_page}_{page_selected_count}",
+                        use_container_width=True,
+                        disabled=not is_admin(),
+                    ):
+                        new_value = not all_page_selected
+                        for selected_row_id in page_ids:
+                            st.session_state[f"{BULK_SELECTION_PREFIX}{selected_row_id}"] = new_value
+                            st.session_state[f"{MOBILE_SELECTION_PREFIX}{selected_row_id}"] = new_value
+                        st.rerun(scope="fragment")
+
+            for page_offset, (_, row) in enumerate(page_df.iterrows()):
+                title = clean_text(row.get("title", ""))
+                matched_title = clean_text(row.get("matched_title", ""))
+                matched_year = clean_text(row.get("matched_year", ""))
+                source_url = clean_text(row.get("source_url", ""))
+                open_year = clean_text(row.get("open_year", ""))
+                last_checked = clean_text(row.get("last_checked", ""))
+                row_id = clean_text(row.get("id", ""))
+                absolute_no = page_start + page_offset + 1
+                update_date_text = clean_text(row.get("btv_update_date", ""))
+                content_type_text = clean_text(row.get("content_type", "")) or "기타"
+
+                mobile_details: list[str] = []
+                if open_year:
+                    mobile_details.append(open_year)
+                if matched_title and normalize_title(matched_title) != normalize_title(title):
+                    mobile_details.append(f"매칭: {matched_title}")
+                elif matched_year and matched_year not in mobile_details:
+                    mobile_details.append(matched_year)
+                if update_date_text:
+                    mobile_details.append(f"B tv+ {update_date_text}")
+                if last_checked:
+                    mobile_details.append(f"확인 {last_checked}")
+
+                mobile_detail_text = " · ".join(html.escape(item) for item in mobile_details)
+                if source_url:
+                    mobile_source_link = (
+                        f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
+                    )
+                    mobile_detail_text += (" · " if mobile_detail_text else "") + mobile_source_link
+
+                canonical_key = f"{BULK_SELECTION_PREFIX}{row_id}"
+                mobile_key = f"{MOBILE_SELECTION_PREFIX}{row_id}"
+                st.session_state[mobile_key] = bool(st.session_state.get(canonical_key, False))
+
+                with st.container(border=True, key=f"mobile_content_card_{row_id}"):
+                    select_col, number_col, poster_col, copy_col = st.columns(
+                        [0.17, 0.20, 0.47, 1.58], gap="small", vertical_alignment="center"
+                    )
+                    with select_col:
+                        st.checkbox(
+                            f"{title} 모바일 선택",
+                            key=mobile_key,
+                            label_visibility="collapsed",
+                            disabled=not is_admin(),
+                            on_change=sync_mobile_selection,
+                            args=(row_id,),
+                        )
+                    with number_col:
+                        st.markdown(
+                            f'<div class="mobile-card-number">{absolute_no}</div>',
+                            unsafe_allow_html=True,
+                        )
                     with poster_col:
                         st.markdown(poster_html(row), unsafe_allow_html=True)
                     with copy_col:
                         st.markdown(
-                            f'<div class="title-main">{html.escape(title)}</div>'
-                            f'<div class="title-sub">{detail_text or "-"}</div>',
+                            f'<div class="mobile-card-title">{html.escape(title)}</div>'
+                            f'<div class="mobile-card-meta">{mobile_detail_text or "-"}</div>'
+                            f'<div class="mobile-card-type">{type_badge(content_type_text)}</div>',
                             unsafe_allow_html=True,
                         )
 
-                with columns[2]:
-                    st.markdown(
-                        f'<div class="native-cell">{html.escape(clean_text(row.get("btv_update_date", "")))}</div>',
-                        unsafe_allow_html=True,
-                    )
-                with columns[3]:
-                    st.markdown(
-                        f'<div class="native-cell">{type_badge(clean_text(row.get("content_type", "")))}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown(mobile_ott_grid_html(row), unsafe_allow_html=True)
 
-                provider_columns = ["netflix", "coupang", "tving", "wavve", "disney", "watcha"]
-                for column, provider_column in zip(columns[4:10], provider_columns):
-                    with column:
-                        st.markdown(
-                            f'<div class="native-cell native-ox">{ox_badge(row.get(provider_column))}</div>',
-                            unsafe_allow_html=True,
-                        )
-
-                with columns[10]:
                     if is_admin():
-                        refresh_col, delete_col = st.columns(2, gap="small")
-                        with refresh_col:
+                        mobile_refresh_col, mobile_delete_col = st.columns(2, gap="small")
+                        with mobile_refresh_col:
                             if st.button(
-                                "↻",
-                                key=f"native_refresh_{row_id}",
-                                help=f"{title} 다시 확인",
+                                "↻ 다시 확인",
+                                key=f"mobile_refresh_{row_id}",
                                 use_container_width=True,
                             ):
                                 render_refresh_dialog(full_df, row_id)
-                        with delete_col:
+                        with mobile_delete_col:
                             if st.button(
-                                "⌫",
-                                key=f"native_delete_{row_id}",
-                                help=f"{title} 삭제",
+                                "⌫ 삭제",
+                                key=f"mobile_delete_{row_id}",
                                 use_container_width=True,
                             ):
                                 render_delete_dialog(full_df, row_id)
-                    else:
-                        st.markdown('<div class="native-cell">-</div>', unsafe_allow_html=True)
-
-    # 모바일 전용 카드 목록. PC에서는 CSS로 숨기고 800px 이하에서만 표시한다.
-    with st.container(key="mobile_cards_shell"):
-        with st.container(key="mobile_list_toolbar"):
-            mobile_info_col, mobile_toggle_col = st.columns(
-                [1.45, 1.0], gap="small", vertical_alignment="center"
-            )
-            with mobile_info_col:
-                st.markdown(
-                    f'<div class="mobile-list-summary"><b>{total_items:,}개</b> 중 '
-                    f'{page_start + 1}~{page_start + len(page_df)} 표시</div>',
-                    unsafe_allow_html=True,
-                )
-            with mobile_toggle_col:
-                toggle_label = "현재 페이지 선택 해제" if all_page_selected else "현재 페이지 전체 선택"
-                if st.button(
-                    toggle_label,
-                    key=f"mobile_toggle_page_{current_page}_{page_selected_count}",
-                    use_container_width=True,
-                    disabled=not is_admin(),
-                ):
-                    new_value = not all_page_selected
-                    for selected_row_id in page_ids:
-                        st.session_state[f"{BULK_SELECTION_PREFIX}{selected_row_id}"] = new_value
-                        st.session_state[f"{MOBILE_SELECTION_PREFIX}{selected_row_id}"] = new_value
-                    st.rerun(scope="fragment")
-
-        for page_offset, (_, row) in enumerate(page_df.iterrows()):
-            title = clean_text(row.get("title", ""))
-            matched_title = clean_text(row.get("matched_title", ""))
-            matched_year = clean_text(row.get("matched_year", ""))
-            source_url = clean_text(row.get("source_url", ""))
-            open_year = clean_text(row.get("open_year", ""))
-            last_checked = clean_text(row.get("last_checked", ""))
-            row_id = clean_text(row.get("id", ""))
-            absolute_no = page_start + page_offset + 1
-            update_date_text = clean_text(row.get("btv_update_date", ""))
-            content_type_text = clean_text(row.get("content_type", "")) or "기타"
-
-            mobile_details: list[str] = []
-            if open_year:
-                mobile_details.append(open_year)
-            if matched_title and normalize_title(matched_title) != normalize_title(title):
-                mobile_details.append(f"매칭: {matched_title}")
-            elif matched_year and matched_year not in mobile_details:
-                mobile_details.append(matched_year)
-            if update_date_text:
-                mobile_details.append(f"B tv+ {update_date_text}")
-            if last_checked:
-                mobile_details.append(f"확인 {last_checked}")
-
-            mobile_detail_text = " · ".join(html.escape(item) for item in mobile_details)
-            if source_url:
-                mobile_source_link = (
-                    f'<a href="{html.escape(source_url, quote=True)}" target="_blank">근거 보기</a>'
-                )
-                mobile_detail_text += (" · " if mobile_detail_text else "") + mobile_source_link
-
-            canonical_key = f"{BULK_SELECTION_PREFIX}{row_id}"
-            mobile_key = f"{MOBILE_SELECTION_PREFIX}{row_id}"
-            st.session_state[mobile_key] = bool(st.session_state.get(canonical_key, False))
-
-            with st.container(border=True, key=f"mobile_content_card_{row_id}"):
-                select_col, number_col, poster_col, copy_col = st.columns(
-                    [0.17, 0.20, 0.47, 1.58], gap="small", vertical_alignment="center"
-                )
-                with select_col:
-                    st.checkbox(
-                        f"{title} 모바일 선택",
-                        key=mobile_key,
-                        label_visibility="collapsed",
-                        disabled=not is_admin(),
-                        on_change=sync_mobile_selection,
-                        args=(row_id,),
-                    )
-                with number_col:
-                    st.markdown(
-                        f'<div class="mobile-card-number">{absolute_no}</div>',
-                        unsafe_allow_html=True,
-                    )
-                with poster_col:
-                    st.markdown(poster_html(row), unsafe_allow_html=True)
-                with copy_col:
-                    st.markdown(
-                        f'<div class="mobile-card-title">{html.escape(title)}</div>'
-                        f'<div class="mobile-card-meta">{mobile_detail_text or "-"}</div>'
-                        f'<div class="mobile-card-type">{type_badge(content_type_text)}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                st.markdown(mobile_ott_grid_html(row), unsafe_allow_html=True)
-
-                if is_admin():
-                    mobile_refresh_col, mobile_delete_col = st.columns(2, gap="small")
-                    with mobile_refresh_col:
-                        if st.button(
-                            "↻ 다시 확인",
-                            key=f"mobile_refresh_{row_id}",
-                            use_container_width=True,
-                        ):
-                            render_refresh_dialog(full_df, row_id)
-                    with mobile_delete_col:
-                        if st.button(
-                            "⌫ 삭제",
-                            key=f"mobile_delete_{row_id}",
-                            use_container_width=True,
-                        ):
-                            render_delete_dialog(full_df, row_id)
 
     if total_pages > 1:
         left, prev_col, info_col, next_col, right = st.columns(
@@ -3272,10 +3304,10 @@ with st.container(key="page_intro_actions"):
     )
     with intro_col:
         st.markdown(
-            """
+            f"""
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v19 · PC 유지·모바일 카드 반응형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">{html.escape(BUILD_LABEL)}</b></div>
 </div>
 """,
             unsafe_allow_html=True,
