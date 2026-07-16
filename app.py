@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v21 · PC 포스터·링크·연도·모바일 카드 개선형"
+BUILD_LABEL = "v22 · PC 표 간격·정렬 개선형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -543,6 +543,56 @@ div[data-baseweb="select"] > div {
   color:#58647d;
 }
 
+
+/* v22: PC 표 좌측 밀도·기준선 정리 (모바일 카드에는 영향 없음) */
+@media (min-width: 801px) {
+  /* 필터 마지막 저장 상태를 버튼들과 같은 기준선에 맞춘다. */
+  .st-key-content_filter_toolbar > div [data-testid="stHorizontalBlock"] {
+    align-items:center !important;
+  }
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child,
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child > div,
+  .st-key-content_filter_toolbar [data-testid="stColumn"]:last-child [data-testid="stMarkdownContainer"] {
+    height:44px !important;
+    min-height:44px !important;
+    display:flex !important;
+    align-items:center !important;
+    margin:0 !important;
+    padding:0 !important;
+  }
+  .st-key-content_filter_toolbar .storage-pill {
+    height:44px !important;
+    min-height:44px !important;
+    margin:0 !important;
+    align-self:center !important;
+  }
+
+  /* 체크박스와 번호를 같은 수평선에 놓고 좌측 여백을 줄인다. */
+  .st-key-comparison_header [data-testid="stCheckbox"],
+  [class*="st-key-bulk_row_select_"] [data-testid="stCheckbox"] {
+    width:100% !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    margin:0 !important;
+  }
+  .st-key-comparison_header [data-testid="stCheckbox"] label,
+  [class*="st-key-bulk_row_select_"] [data-testid="stCheckbox"] label {
+    margin:0 !important;
+    padding:0 !important;
+  }
+  .selection-head, .row-number {
+    width:100%;
+    padding:0 !important;
+    margin:0 !important;
+    text-align:center;
+  }
+
+  /* 포스터·타이틀 셀의 불필요한 안쪽 여백만 줄인다. */
+  [class*="st-key-content_row_"] .poster { margin:0 !important; }
+  [class*="st-key-content_row_"] .title-main,
+  [class*="st-key-content_row_"] .title-sub { margin-left:0 !important; }
+}
 
 /* v14: 검색 결과와 등록 목록의 행 구분선을 실제 컨테이너 폭 전체에 표시 */
 [class*="st-key-candidate_row_"],
@@ -3100,7 +3150,7 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     render_bulk_delete_dialog(full_df, selected_ids)
 
     # 선택/번호 열을 추가하고 기존 열 비율은 최대한 유지한다.
-    widths = [0.72, 3.35, 1.25, 0.98, 0.88, 0.92, 0.76, 0.86, 1.06, 0.74, 0.96]
+    widths = [0.58, 2.95, 1.20, 0.94, 0.86, 0.90, 0.74, 0.84, 1.04, 0.72, 0.92]
 
     mobile_mode = is_mobile_client()
 
@@ -3114,7 +3164,7 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
                     select_key = (
                         f"bulk_select_all_{current_page}_{select_hash}_{page_selected_count}"
                     )
-                    select_col, no_col = st.columns([0.8, 1.0], gap="small", vertical_alignment="center")
+                    select_col, no_col = st.columns([0.68, 0.82], gap=None, vertical_alignment="center")
                     with select_col:
                         page_toggle = st.checkbox(
                             "현재 페이지 전체 선택",
@@ -3172,7 +3222,7 @@ def render_table(df: pd.DataFrame, full_df: pd.DataFrame, page_size: int = 30) -
 
                     with columns[0]:
                         checkbox_col, number_col = st.columns(
-                            [0.8, 1.0], gap="small", vertical_alignment="center"
+                            [0.68, 0.82], gap=None, vertical_alignment="center"
                         )
                         with checkbox_col:
                             st.checkbox(
