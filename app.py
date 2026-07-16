@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 APP_TITLE = "B tv+ max 콘텐츠 경쟁력 비교 대시보드"
-BUILD_LABEL = "v16 · 정액제 탭 정확 판정형"
+BUILD_LABEL = "v17 · 정액제 건수 검증형"
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_DATA_PATH = BASE_DIR / "btv_max_contents.csv"
 LOCAL_HISTORY_PATH = BASE_DIR / "btv_max_history.csv"
@@ -1204,73 +1204,30 @@ def collect_provider_dom_evidence(page: Any) -> str:
 
 
 def extract_detail_providers(page: Any, body_text: str) -> list[str]:
-    """키노라이츠의 '정액제' 탭에 실제로 보이는 제공처만 반환한다.
+    """키노라이츠의 정액제 탭 제공처만 보수적으로 반환한다.
 
-    대여·구매 탭의 제공처, 추천 영역, 페이지 전체 외부 링크는 절대 근거로
-    사용하지 않는다. 정액제 탭을 직접 선택한 뒤 해당 탭과 '미디어' 섹션
-    사이에서 화면에 보이는 제공처명/링크만 읽는다.
+    핵심 안전장치:
+    1) 탭에 표시된 정액제 건수를 먼저 읽는다.
+    2) 정액제 건수가 0이면 다른 탭을 읽지 않고 즉시 빈 목록을 반환한다.
+    3) 건수가 1개 이상이면 정액제 탭의 실제 클릭 가능한 부모를 눌러 전환한다.
+    4) 화면에서 읽은 제공처 수가 탭 건수와 일치할 때만 결과를 인정한다.
+
+    따라서 정액제가 0건인데 현재 선택된 대여/구매 탭의 제공처가 보이는 경우에도
+    해당 제공처를 O로 오인하지 않는다.
     """
     try:
-        # 탭 영역이 지연 로딩될 수 있어 아래로 충분히 이동한다.
-        for ratio in (0.35, 0.65, 0.9):
+        # 제공처 탭이 지연 렌더링될 수 있어 페이지 중하단까지 이동한다.
+        for ratio in (0.35, 0.62, 0.82):
             page.evaluate(
                 "ratio => window.scrollTo(0, Math.max(0, document.body.scrollHeight * ratio))",
                 ratio,
             )
-            page.wait_for_timeout(350)
+            page.wait_for_timeout(300)
     except Exception:
         pass
 
-    # DOM 안에서 정확히 '정액제'라고 표시된 가장 작은 가시 요소를 클릭한다.
-    clicked = False
     try:
-        clicked = bool(
-            page.evaluate(
-                r"""
-                () => {
-                  const clean = value => (value || '').replace(/\s+/g, ' ').trim();
-                  const visible = el => {
-                    if (!el) return false;
-                    const style = getComputedStyle(el);
-                    const rect = el.getBoundingClientRect();
-                    return style.display !== 'none' && style.visibility !== 'hidden' &&
-                           Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
-                  };
-                  const candidates = Array.from(document.querySelectorAll(
-                    '[role="tab"], button, a, [role="button"], div, span'
-                  )).filter(el => {
-                    if (!visible(el)) return false;
-                    const text = clean(el.innerText || el.textContent || '');
-                    return /^정액제(?:\s*\d+)?$/.test(text);
-                  });
-                  if (!candidates.length) return false;
-                  candidates.sort((a, b) => {
-                    const ar = a.getBoundingClientRect();
-                    const br = b.getBoundingClientRect();
-                    const aInteractive = a.matches('[role="tab"],button,a,[role="button"]') ? 0 : 1;
-                    const bInteractive = b.matches('[role="tab"],button,a,[role="button"]') ? 0 : 1;
-                    if (aInteractive !== bInteractive) return aInteractive - bInteractive;
-                    return (ar.width * ar.height) - (br.width * br.height);
-                  });
-                  const target = candidates[0];
-                  target.scrollIntoView({block: 'center'});
-                  target.click();
-                  return true;
-                }
-                """
-            )
-        )
-    except Exception:
-        clicked = False
-
-    if clicked:
-        try:
-            page.wait_for_timeout(900)
-        except Exception:
-            pass
-
-    try:
-        providers = page.evaluate(
+        tab_info = page.evaluate(
             r"""
             () => {
               const clean = value => (value || '').replace(/\s+/g, ' ').trim();
@@ -1281,84 +1238,191 @@ def extract_detail_providers(page: Any, body_text: str) -> list[str]:
                 return style.display !== 'none' && style.visibility !== 'hidden' &&
                        Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
               };
+              const ownText = el => clean(el.innerText || el.textContent || '');
               const all = Array.from(document.querySelectorAll('body *')).filter(visible);
-              const tabs = all.filter(el => /^정액제(?:\s*\d+)?$/.test(clean(el.innerText || el.textContent || '')));
-              if (!tabs.length) return [];
-              tabs.sort((a, b) => {
-                const ar = a.getBoundingClientRect();
-                const br = b.getBoundingClientRect();
+              const labels = all.filter(el => /^정액제(?:\s*\d+)?$/.test(ownText(el)));
+              if (!labels.length) return {found:false, count:null, labelText:'', clicked:false};
+
+              labels.sort((a, b) => {
+                const at = ownText(a), bt = ownText(b);
+                const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
+                if (at.length !== bt.length) return at.length - bt.length;
                 return (ar.width * ar.height) - (br.width * br.height);
               });
-              const tab = tabs[0];
-              const tabRect = tab.getBoundingClientRect();
-              const startY = tabRect.bottom + window.scrollY + 6;
+              const label = labels[0];
+              const labelText = ownText(label);
+              let match = labelText.match(/^정액제(?:\s*(\d+))?$/);
+              let count = match && match[1] ? Number(match[1]) : null;
 
-              // 다음 큰 섹션인 '미디어' 전까지만 정액제 결과 영역으로 인정한다.
-              const mediaCandidates = all.filter(el => {
-                const text = clean(el.innerText || el.textContent || '');
-                if (!/^미디어$/.test(text)) return false;
-                const rect = el.getBoundingClientRect();
-                return rect.top + window.scrollY > startY;
-              });
-              let endY = startY + 1100;
-              if (mediaCandidates.length) {
-                endY = Math.min(...mediaCandidates.map(el => el.getBoundingClientRect().top + window.scrollY));
-              }
-
-              const providerDefs = [
-                ['넷플릭스', [/넷플릭스/i, /netflix/i], [/netflix\.com/i]],
-                ['쿠팡플레이', [/쿠팡\s*플레이/i, /coupang\s*play/i], [/coupangplay\.com/i, /coupang\.com\/play/i]],
-                ['티빙', [/티빙/i, /tving/i], [/tving\.com/i]],
-                ['웨이브', [/웨이브/i, /wavve/i], [/wavve\.com/i]],
-                ['디즈니+', [/디즈니\s*\+?/i, /disney\s*\+?/i], [/disneyplus\.com/i]],
-                ['왓챠', [/왓챠/i, /watcha/i], [/watcha\.(com|co\.kr)/i]],
-                ['라프텔', [/라프텔/i, /laftel/i], [/laftel\.net/i]],
-                ['Apple TV', [/apple\s*tv/i, /애플\s*tv/i], [/tv\.apple\.com/i]],
-                ['아마존 프라임 비디오', [/아마존\s*프라임/i, /prime\s*video/i], [/primevideo\.com/i]],
-                ['씨네폭스', [/씨네폭스/i, /cinefox/i], [/cinefox\.com/i]],
-              ];
-
-              const found = [];
-              const nodes = Array.from(document.querySelectorAll(
-                'a, button, li, [role="button"], img[alt], [aria-label], [title], div, span'
-              )).filter(visible);
-
-              for (const node of nodes) {
-                const rect = node.getBoundingClientRect();
-                const centerY = rect.top + window.scrollY + rect.height / 2;
-                if (centerY <= startY || centerY >= endY) continue;
-
-                const text = clean([
-                  node.innerText,
-                  node.textContent,
-                  node.getAttribute?.('alt'),
-                  node.getAttribute?.('aria-label'),
-                  node.getAttribute?.('title'),
-                ].filter(Boolean).join(' | '));
-                const href = clean(node.getAttribute?.('href') || '');
-
-                // 너무 큰 부모 컨테이너는 여러 탭의 텍스트를 한꺼번에 품을 수 있어 제외한다.
-                if (text.length > 120) continue;
-
-                for (const [name, textPatterns, urlPatterns] of providerDefs) {
-                  if (found.includes(name)) continue;
-                  const textHit = textPatterns.some(re => re.test(text));
-                  const urlHit = urlPatterns.some(re => re.test(href));
-                  if (textHit || urlHit) found.push(name);
+              // 숫자 배지가 별도 자식/형제 요소인 경우 가까운 탭 행 전체 텍스트에서 보완한다.
+              let tabRow = label;
+              for (let depth = 0; tabRow && depth < 7; depth += 1, tabRow = tabRow.parentElement) {
+                const text = ownText(tabRow);
+                if (text.length <= 260 && /정액제/.test(text) && /무료/.test(text) && /대여/.test(text) && /구매/.test(text)) {
+                  const countMatch = text.match(/정액제\s*(\d+)/);
+                  if (count === null && countMatch) count = Number(countMatch[1]);
+                  break;
                 }
               }
-              return found;
+
+              // 키노라이츠 UI는 제공처가 0개인 탭에는 숫자를 표시하지 않는다.
+              // 같은 탭 행에 대여/구매 숫자는 있는데 정액제 숫자가 없으면 0건으로 확정한다.
+              if (count === null && tabRow) {
+                const rowText = ownText(tabRow);
+                if (/대여\s*\d+|구매\s*\d+|무료\s*\d+/.test(rowText)) count = 0;
+              }
+
+              let clickable = label;
+              for (let depth = 0; clickable && depth < 7; depth += 1, clickable = clickable.parentElement) {
+                const role = clickable.getAttribute?.('role') || '';
+                const style = getComputedStyle(clickable);
+                if (clickable.matches?.('button, a, [role="tab"], [role="button"], input') ||
+                    role === 'tab' || role === 'button' || style.cursor === 'pointer') {
+                  break;
+                }
+              }
+              if (!clickable) clickable = label;
+              clickable.scrollIntoView({block:'center'});
+
+              // pointer/mouse 이벤트까지 보내 React/Vue 탭 핸들러가 확실히 실행되게 한다.
+              for (const type of ['pointerdown','mousedown','pointerup','mouseup','click']) {
+                try {
+                  const EventCtor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+                  clickable.dispatchEvent(new EventCtor(type, {bubbles:true, cancelable:true, view:window}));
+                } catch (_) {}
+              }
+              try { clickable.click(); } catch (_) {}
+
+              return {
+                found:true,
+                count,
+                labelText,
+                clicked:true,
+                y:(tabRow || label).getBoundingClientRect().bottom + window.scrollY
+              };
             }
             """
         )
-        if isinstance(providers, list):
-            return [clean_text(name) for name in providers if clean_text(name)]
+    except Exception:
+        return []
+
+    if not isinstance(tab_info, dict) or not tab_info.get("found"):
+        return []
+
+    expected_count = tab_info.get("count")
+    try:
+        expected_count = int(expected_count) if expected_count is not None else None
+    except Exception:
+        expected_count = None
+
+    # 정액제 0건은 가장 확실한 정보다. 현재 열려 있는 대여/구매 패널은 읽지 않는다.
+    if expected_count == 0:
+        return []
+
+    try:
+        page.wait_for_timeout(1100)
     except Exception:
         pass
 
-    # 정액제 탭을 정확히 읽지 못했을 때는 대여/구매를 오인하지 않도록 빈 값 처리한다.
-    return []
+    try:
+        result = page.evaluate(
+            r"""
+            (expectedCount) => {
+              const clean = value => (value || '').replace(/\s+/g, ' ').trim();
+              const visible = el => {
+                if (!el) return false;
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden' &&
+                       Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0;
+              };
+              const textOf = el => clean(el.innerText || el.textContent || '');
+              const all = Array.from(document.querySelectorAll('body *')).filter(visible);
+              const labels = all.filter(el => /^정액제(?:\s*\d+)?$/.test(textOf(el)));
+              if (!labels.length) return {providers:[], active:false};
+              labels.sort((a,b) => {
+                const ar=a.getBoundingClientRect(), br=b.getBoundingClientRect();
+                return (ar.width*ar.height)-(br.width*br.height);
+              });
+              const label = labels[0];
 
+              let interactive = label;
+              for (let depth=0; interactive && depth<7; depth+=1, interactive=interactive.parentElement) {
+                if (interactive.matches?.('button,a,[role="tab"],[role="button"]')) break;
+              }
+              if (!interactive) interactive = label;
+              const attrText = clean([
+                interactive.getAttribute?.('aria-selected'),
+                interactive.getAttribute?.('aria-current'),
+                interactive.getAttribute?.('data-state'),
+                interactive.className,
+              ].filter(Boolean).join(' ')).toLowerCase();
+              let active = /(^|\s)(true|active|selected|current|on)(\s|$)/.test(attrText);
+
+              let tabRow = label;
+              for (let depth=0; tabRow && depth<7; depth+=1, tabRow=tabRow.parentElement) {
+                const text=textOf(tabRow);
+                if (text.length<=260 && /정액제/.test(text) && /무료/.test(text) && /대여/.test(text) && /구매/.test(text)) break;
+              }
+              const startY = (tabRow || label).getBoundingClientRect().bottom + window.scrollY + 4;
+              const media = all.filter(el => /^미디어$/.test(textOf(el)))
+                .map(el => el.getBoundingClientRect().top + window.scrollY)
+                .filter(y => y > startY);
+              const endY = media.length ? Math.min(...media) : startY + 1100;
+
+              const defs = [
+                ['넷플릭스', [/넷플릭스/i,/netflix/i], [/netflix\.com/i]],
+                ['쿠팡플레이', [/쿠팡\s*플레이/i,/coupang\s*play/i], [/coupangplay\.com/i,/coupang\.com\/play/i]],
+                ['티빙', [/티빙/i,/tving/i], [/tving\.com/i]],
+                ['웨이브', [/웨이브/i,/wavve/i], [/wavve\.com/i]],
+                ['디즈니+', [/디즈니\s*\+?/i,/disney\s*\+?/i], [/disneyplus\.com/i]],
+                ['왓챠', [/왓챠/i,/watcha/i], [/watcha\.(com|co\.kr)/i]],
+                ['라프텔', [/라프텔/i,/laftel/i], [/laftel\.net/i]],
+                ['Apple TV', [/apple\s*tv/i,/애플\s*tv/i], [/tv\.apple\.com/i]],
+                ['아마존 프라임 비디오', [/아마존\s*프라임/i,/prime\s*video/i], [/primevideo\.com/i]],
+                ['씨네폭스', [/씨네폭스/i,/cinefox/i], [/cinefox\.com/i]],
+              ];
+              const found=[];
+              const candidates=Array.from(document.querySelectorAll(
+                'a,button,li,[role="button"],img[alt],[aria-label],[title]'
+              )).filter(visible);
+              for (const node of candidates) {
+                const rect=node.getBoundingClientRect();
+                const y=rect.top+window.scrollY+rect.height/2;
+                if (y<=startY || y>=endY) continue;
+                const text=clean([
+                  node.innerText,node.textContent,node.getAttribute?.('alt'),
+                  node.getAttribute?.('aria-label'),node.getAttribute?.('title')
+                ].filter(Boolean).join(' | '));
+                const href=clean(node.getAttribute?.('href') || '');
+                if (text.length>140) continue;
+                for (const [name,textPatterns,urlPatterns] of defs) {
+                  if (found.includes(name)) continue;
+                  if (textPatterns.some(re=>re.test(text)) || urlPatterns.some(re=>re.test(href))) found.push(name);
+                }
+              }
+
+              // 활성 속성이 없는 UI도 있다. 이 경우 탭 건수와 읽은 제공처 수가 정확히 같을 때만
+              // 탭 전환 성공으로 인정한다. 대여 패널을 잘못 읽으면 보통 건수가 달라져 차단된다.
+              if (!active && Number.isInteger(expectedCount) && expectedCount > 0 && found.length === expectedCount) {
+                active = true;
+              }
+              return {providers:found, active};
+            }
+            """,
+            expected_count,
+        )
+    except Exception:
+        return []
+
+    if not isinstance(result, dict) or not result.get("active"):
+        return []
+    providers = [clean_text(x) for x in (result.get("providers") or []) if clean_text(x)]
+
+    # 탭 숫자와 추출 결과가 다르면 다른 탭/추천 영역일 가능성이 있으므로 실패 폐쇄한다.
+    if expected_count is not None and expected_count >= 0 and len(providers) != expected_count:
+        return []
+    return providers
 
 def clean_candidate_title(raw_text: str, fallback: str = "") -> str:
     lines = [line.strip() for line in clean_text(raw_text).splitlines() if line.strip()]
@@ -2818,7 +2882,7 @@ with intro_col:
         """
 <div class="intro">
   <div class="intro-title">🎬 B tv+ 업데이트 콘텐츠 OTT 편성 현황</div>
-  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v16 · 정액제 탭 정확 판정형</b></div>
+  <div class="intro-sub">B tv+에 업데이트되는 콘텐츠가 주요 OTT에 편성되어 있는지 확인할 수 있습니다. <b style="color:#173b9b">v17 · 정액제 건수 검증형</b></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -3129,7 +3193,7 @@ if st.session_state.get("_content_filter_signature") != filter_signature:
 
 render_table(view, full_df=df, page_size=30)
 st.markdown(
-    '<div class="footer-note">※ OTT 편성 현황은 키노라이츠의 정액제 탭에 실제 표시되는 제공처만 기준으로 합니다. '
+    '<div class="footer-note">※ OTT 편성 현황은 키노라이츠 정액제 탭의 건수와 실제 제공처가 일치할 때만 반영합니다. '
     '실제 서비스 편성 변경이나 동명 작품 매칭에 따라 차이가 있을 수 있습니다. 저장된 값은 자동으로 바뀌지 않으며, 재확인 후 저장할 때만 갱신됩니다.</div>',
     unsafe_allow_html=True,
 )
